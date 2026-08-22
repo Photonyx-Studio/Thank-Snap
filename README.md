@@ -1,237 +1,410 @@
-# Shopify App Template - React Router
+# thank-snap
 
-This is a template for building a [Shopify app](https://shopify.dev/docs/apps/getting-started) using [React Router](https://reactrouter.com/). It was forked from the [Shopify Remix app template](https://github.com/Shopify/shopify-app-template-remix) and converted to React Router.
+A Shopify app that shows a merchant-customizable survey on the Thank you page
+after checkout (e.g. "How did you hear about us?"), and lets the merchant
+edit the question/options and turn it on/off from the app's home page.
 
-Rather than cloning this repo, follow the [Quick Start steps](https://github.com/Shopify/shopify-app-template-react-router#quick-start).
+Built on the Shopify React Router app template, Prisma + Postgres (Supabase),
+and a checkout UI extension.
 
-Visit the [`shopify.dev` documentation](https://shopify.dev/docs/api/shopify-app-react-router) for more details on the React Router app package.
+## How it fits together
 
-## Upgrading from Remix
+```
+Merchant                                Customer
+   │                                        │
+   ▼                                        ▼
+Survey page                        Thank you page
+(app/routes/app.survey.tsx)        (extensions/thank-you-survey)
+   │  saves Survey + Questions             │  GET  /api/survey-config
+   │  (heading, description,               │       → current questions + options
+   │   questions, active)                  │  POST /api/survey-response
+   ▼                                       ▼       → records answers (one call, all questions)
+             Postgres (Shop, Survey, Question, Order, Response)
+```
 
-If you have an existing Remix app that you want to upgrade to React Router, please follow the [upgrade guide](https://github.com/Shopify/shopify-app-template-react-router/wiki/Upgrading-from-Remix). Otherwise, please follow the quick start guide below.
+- The extension is a **block-target** checkout UI extension. It doesn't
+  auto-appear — a merchant has to place it on the Thank you page once via the
+  checkout editor (see [Local development](#local-development) below).
+- The extension can't read `shopify.app.toml` at runtime, so it talks to the
+  app backend over an **absolute URL** hardcoded in
+  `extensions/thank-you-survey/src/shared.tsx` (`APP_URL`), authenticated with
+  a checkout session token (`shopify.sessionToken.get()` → `authenticate.public.checkout`
+  on the server). This URL is the `npm run dev` tunnel URL locally, and changes
+  every time you restart `npm run dev` — see the debugging playbook below.
 
-## Quick start
+## Data model (`prisma/schema.prisma`)
+
+| Model      | Purpose                                                                                     |
+| ---------- | --------------------------------------------------------------------------------------------|
+| `Shop`     | One row per install, keyed by `shopDomain`.                                                  |
+| `Survey`   | Belongs to a `Shop`. `title`/`description` are the overall heading shown above all questions. `status` is `DRAFT`/`ACTIVE`/`ARCHIVED` — only `ACTIVE` renders to buyers. |
+| `Question` | Belongs to a `Survey`. `label` is the actual question text, `type` is `SINGLE_CHOICE`/`MULTIPLE_CHOICE`/`TEXT`/`RATING`, `options` is a JSON array of strings (unused for `TEXT`/`RATING`), `position` controls display order. |
+| `Order`    | Belongs to a `Shop`, keyed by `(shopId, shopifyOrderId)`. Thank you page extensions run before the order is fully finalized, so `shopifyOrderId` may be a `pending:<session id>` placeholder if the real Shopify order GID wasn't available yet at submit time. |
+| `Response` | One row per **answer** (not per full submission). `submissionId` groups every answer from one sitting; links to `Order`, `Survey`, `Question`. |
+
+This app manages a single `Survey` per shop, but that survey can have **any
+number of `Question` rows** of mixed types — the admin builder
+(`/app/survey`) lets merchants add/remove/reorder questions freely. The
+schema would support multiple distinct surveys per shop too, but nothing in
+the app currently creates more than one.
+
+**Data note:** early versions of this app stored the question text directly
+on `Survey.title` and gave the single `Question` row a placeholder
+`label: "attribution"`. `getOrCreateSurvey` in `survey.server.ts` detects and
+self-heals this on first load (moves the real text onto the question, resets
+the survey heading to a generic default) — you shouldn't need to touch this
+manually, but it explains why a fresh read after upgrading looks different
+from what was last saved.
+
+## Project structure
+
+- `app/routes/app._index.tsx` — admin home page: status summary, the
+  response-rate widget, and links to the survey builder and responses list.
+- `app/routes/app.survey.tsx` — the survey builder page. Composes the
+  reusable pieces in `app/components/survey/` rather than inlining the whole
+  form.
+- `app/routes/app.responses.tsx` — paginated table of every collected
+  answer (date, order, question, answer).
+- `app/components/survey/` — `TemplateCard.tsx` (one template grid card),
+  `QuestionEditor.tsx` (one question's full editor card: type, text,
+  required, options, reorder/remove), `OptionRow.tsx` (one answer-option
+  field), and `types.ts` (the shared `QuestionDraft` UI type plus
+  `blankQuestion`/`makeQuestionKey` helpers).
+- `app/models/survey.server.ts` — shared find-or-create/update logic used by
+  the pages above. `updateSurvey` reconciles the incoming question list
+  against existing rows (update by id, create new, delete removed) rather
+  than blindly replacing everything — deleting all and recreating on every
+  save would cascade-delete `Response` history for every question, every
+  time.
+- `app/models/survey-templates.ts` — premade single-question survey presets
+  shown on the builder page ("Classic attribution", "Social-first", etc.).
+  `survey.server.ts`'s defaults are derived from the first entry here rather
+  than duplicating the same title/options as literals in two places.
+- `app/models/stats.server.ts` — the response-rate calculation (see the note
+  in that file and the Protected Customer Data entry below for why it's
+  measured the way it is).
+- `app/models/shop.server.ts` — `findShopBySessionToken`, shared by the three
+  public API routes below to turn a checkout session token into a `Shop` row.
+- `app/routes/api.active-survey.tsx` — public GET, called by the extension to
+  fetch the current survey and its questions. Auth: `authenticate.public.checkout`.
+- `app/routes/api.survey-view.tsx` — public POST, called once the extension
+  loads an active survey. Records that it was shown, independent of whether
+  it's answered. Same auth.
+- `app/routes/api.response.tsx` — public POST, called by the extension
+  to record answers (one call per submission, covering all answered
+  questions). Same auth.
+- `app/shopify.server.ts` — Shopify app config (API key/secret, scopes, session storage).
+- `app/db.server.ts` — Prisma client singleton.
+- `prisma/schema.prisma`, `prisma/migrations/` — data model and migration history.
+- `extensions/thank-you-survey/` — TypeScript, checked independently via its
+  own `tsconfig.json` (`npx tsc -p extensions/thank-you-survey/tsconfig.json --noEmit`;
+  the root `npm run typecheck` deliberately excludes this folder — see the
+  debugging playbook).
+  - `src/types.ts` — `Question`, `SurveyConfig`, and the request/response
+    param types shared across the extension.
+  - `src/shared.tsx` — `Survey` UI wrapper, `QuestionField` (renders the
+    right control per question type — `s-choice-list` always takes a
+    `values` array, even for single-select), `useStorageState` (prevents
+    re-showing after submit), `fetchSurveyConfig`/`recordSurveyView`/`submitSurveyResponse`
+    (session-token-authenticated fetch helpers), and the **`APP_URL` constant**.
+  - `src/ThankYouPageSurvey.tsx` — the actual survey component; fetches config
+    on mount, records a view, renders one `QuestionField` per question, and
+    submits all answered questions together under one `submissionId`. Renders
+    nothing if inactive/not configured/already submitted.
+  - `shopify.extension.toml` — target (`purchase.thank-you.block.render`) and
+    capabilities (`network_access`, needed for `fetch()`).
+
+## Local development
 
 ### Prerequisites
 
-Before you begin, you'll need to [download and install the Shopify CLI](https://shopify.dev/docs/apps/tools/cli/getting-started) if you haven't already.
+- `.env` with `DATABASE_URL` and `DIRECT_URL` — see `.env.example` for the
+  exact shape and why two URLs are needed (Supabase pooler quirks, see below).
+- Node `>=20.19 <22` or `>=22.12`.
 
-### Setup
+### Running
 
-```shell
-shopify app init --template=https://github.com/Shopify/shopify-app-template-react-router
-```
+1. `npm install`
+2. `npm run dev` — runs `shopify app dev`, which also runs `prisma generate`
+   and `prisma migrate deploy` automatically (see `shopify.web.toml`).
+3. Copy the tunnel URL the CLI prints (`Using URL: https://....trycloudflare.com`)
+   into `APP_URL` in `extensions/thank-you-survey/src/shared.tsx`. **Do this
+   every time you restart `npm run dev`** — the tunnel URL is ephemeral and
+   the extension can't discover it on its own. If you forget, the extension
+   shows a warning banner instead of silently failing.
+4. In Shopify admin: **Online Store → Themes → Customize** on your theme →
+   switch the page dropdown at the top from "Home page" to **Checkout** →
+   select the **Thank you** tab → click into the page body → **Add app
+   block** → choose **thank-you-survey**. This is a one-time setup per store;
+   the placement persists across dev sessions.
+5. Open the app's home page in the Shopify admin at least once (creates the
+   default `Survey`/`Question` rows) and make sure "Show survey on the Thank
+   you page" is on.
+6. Place a test order on the dev store — the survey should appear on the
+   Thank you page and submitting it should create a `Response` row.
 
-### Local Development
+## Debugging playbook
 
-```shell
-shopify app dev
-```
+Real issues encountered while building this app, and how to recognize/fix them.
 
-Press P to open the URL to your app. Once you click install, you can start development.
+### `prisma migrate dev`/`deploy` hangs forever right after "Datasource ... loaded"
 
-Local development is powered by [the Shopify CLI](https://shopify.dev/docs/apps/tools/cli). It logs into your account, connects to an app, provides environment variables, updates remote config, creates a tunnel and provides commands to generate extensions.
+**Cause:** `DATABASE_URL` points at Supabase's transaction pooler (port
+`6543`, PgBouncer). Prisma Migrate needs a session-level advisory lock that
+PgBouncer's transaction-pooling mode doesn't support, so it hangs instead of
+erroring.
 
-### Authenticating and querying data
+**Fix:** migrations use `DIRECT_URL` (the `directUrl` in
+`prisma/schema.prisma`), which must be a **session-mode** connection —
+Supabase's direct host (`db.<ref>.supabase.co:5432`), or, if that's
+unreachable (next item), the pooler host on port `5432` instead of `6543`.
 
-To authenticate and query data you can use the `shopify` const that is exported from `/app/shopify.server.js`:
+### `P1001: Can't reach database server at db.<ref>.supabase.co:5432`
 
-```js
-export async function loader({ request }) {
-  const { admin } = await shopify.authenticate.admin(request);
+**Cause:** Supabase's direct-connection host is IPv6-only on many projects
+(check with `dig db.<ref>.supabase.co AAAA` vs `A` — if only `AAAA` resolves,
+this is why). Networks/sandboxes without IPv6 egress can't reach it.
 
-  const response = await admin.graphql(`
-    {
-      products(first: 25) {
-        nodes {
-          title
-          description
-        }
-      }
-    }`);
+**Fix:** point `DIRECT_URL` at the pooler host instead — same host as
+`DATABASE_URL`, but port `5432` (session mode) instead of `6543` (transaction
+mode). Session mode supports advisory locks and resolves over IPv4.
 
-  const {
-    data: {
-      products: { nodes },
-    },
-  } = await response.json();
+### `prisma migrate status` shows migrations that don't match on both sides
 
-  return nodes;
-}
-```
+**Symptom:** it lists migrations present in the database but missing locally,
+or vice versa. Happens if the database was set up from a different checkout
+of this repo, or migrations were applied by hand.
 
-This template comes pre-configured with examples of:
-
-1. Setting up your Shopify app in [/app/shopify.server.ts](https://github.com/Shopify/shopify-app-template-react-router/blob/main/app/shopify.server.ts)
-2. Querying data using Graphql. Please see: [/app/routes/app.\_index.tsx](https://github.com/Shopify/shopify-app-template-react-router/blob/main/app/routes/app._index.tsx).
-3. Responding to webhooks. Please see [/app/routes/webhooks.tsx](https://github.com/Shopify/shopify-app-template-react-router/blob/main/app/routes/webhooks.app.uninstalled.tsx).
-4. Using metafields, metaobjects, and declarative custom data definitions. Please see [/app/routes/app.\_index.tsx](https://github.com/Shopify/shopify-app-template-react-router/blob/main/app/routes/app._index.tsx) and [shopify.app.toml](https://github.com/Shopify/shopify-app-template-react-router/blob/main/shopify.app.toml).
-
-Please read the [documentation for @shopify/shopify-app-react-router](https://shopify.dev/docs/api/shopify-app-react-router) to see what other API's are available.
-
-## Shopify Dev MCP
-
-This template is configured with the Shopify Dev MCP. This instructs [Cursor](https://cursor.com/), [GitHub Copilot](https://github.com/features/copilot) and [Claude Code](https://claude.com/product/claude-code) and [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) to use the Shopify Dev MCP.
-
-For more information on the Shopify Dev MCP please read [the documentation](https://shopify.dev/docs/apps/build/devmcp).
-
-## Deployment
-
-### Application Storage
-
-This template uses [Prisma](https://www.prisma.io/) to store session data, by default using an [SQLite](https://www.sqlite.org/index.html) database.
-The database is defined as a Prisma schema in `prisma/schema.prisma`.
-
-This use of SQLite works in production if your app runs as a single instance.
-The database that works best for you depends on the data your app needs and how it is queried.
-Here’s a short list of databases providers that provide a free tier to get started:
-
-| Database   | Type             | Hosters                                                                                                                                                                                                                                    |
-| ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| MySQL      | SQL              | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-mysql), [Planet Scale](https://planetscale.com/), [Amazon Aurora](https://aws.amazon.com/rds/aurora/), [Google Cloud SQL](https://cloud.google.com/sql/docs/mysql) |
-| PostgreSQL | SQL              | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-postgresql), [Amazon Aurora](https://aws.amazon.com/rds/aurora/), [Google Cloud SQL](https://cloud.google.com/sql/docs/postgres)                                   |
-| Redis      | Key-value        | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-redis), [Amazon MemoryDB](https://aws.amazon.com/memorydb/)                                                                                                        |
-| MongoDB    | NoSQL / Document | [Digital Ocean](https://www.digitalocean.com/products/managed-databases-mongodb), [MongoDB Atlas](https://www.mongodb.com/atlas/database)                                                                                                  |
-
-To use one of these, you can use a different [datasource provider](https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#datasource) in your `schema.prisma` file, or a different [SessionStorage adapter package](https://github.com/Shopify/shopify-api-js/blob/main/packages/shopify-api/docs/guides/session-storage.md).
-
-### Build
-
-Build the app by running the command below with the package manager of your choice:
-
-Using yarn:
+**Do not** run `prisma migrate reset` reflexively — it drops all data.
+Instead:
 
 ```shell
-yarn build
+psql "$DIRECT_URL" -c '\dt public.*'          # what tables actually exist
+psql "$DIRECT_URL" -c '\d "TableName"'        # compare columns against schema.prisma
 ```
 
-Using npm:
+If a table already matches `schema.prisma` exactly, record it as applied
+without running SQL: `npx prisma migrate resolve --applied <migration_name>`.
+For genuinely new tables, write/generate a migration
+(`npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script`
+is useful for generating the SQL) and apply it with `npx prisma migrate deploy`.
 
-```shell
-npm run build
-```
+### Survey doesn't show up on the Thank you page
 
-Using pnpm:
+Three independent things all have to be true — check in this order:
 
-```shell
-pnpm run build
-```
+1. **Block is placed in the checkout editor.** Block-target extensions never
+   auto-appear on a real checkout. See step 4 under
+   [Local development](#local-development). (You can skip this while
+   iterating by using the CLI dev console's preview link instead — press `p`
+   after `npm run dev`.)
+2. **`APP_URL` in `shared.tsx` is current.** It's the `npm run dev` tunnel
+   URL and changes every session. If it's stale or still the
+   `https://example.com` placeholder, the extension renders a **warning
+   banner**, not silence — if you see that banner, this is the fix.
+3. **The survey is active.** The app home page has to have been opened at
+   least once (creates default `Survey`/`Question` rows), and the "Show
+   survey" switch left on. If `GET /api/survey-config` returns
+   `{ "active": false }`, the extension renders nothing — by design, not a
+   bug.
 
-## Hosting
+### `npm run typecheck`/`npm run lint` fails after `shopify app generate extension` or `shopify app build`
 
-When you're ready to set up your app in production, you can follow [our deployment documentation](https://shopify.dev/docs/apps/launch/deployment) to host it externally. From there, you have a few options:
+These commands install dependencies and regenerate
+`extensions/*/shopify.d.ts` (declares the `shopify` global for whichever
+module/target is configured in `shopify.extension.toml`). If you rename a
+module file or change `target`, re-run `npx shopify app build` once to
+regenerate the stale `.d.ts`. It's gitignored — don't hand-edit it.
 
-- [Google Cloud Run](https://shopify.dev/docs/apps/launch/deployment/deploy-to-google-cloud-run): This tutorial is written specifically for this example repo, and is compatible with the extended steps included in the subsequent [**Build your app**](tutorial) in the **Getting started** docs. It is the most detailed tutorial for taking a React Router-based Shopify app and deploying it to production. It includes configuring permissions and secrets, setting up a production database, and even hosting your apps behind a load balancer across multiple regions.
-- [Fly.io](https://fly.io/docs/js/shopify/): Leverages the Fly.io CLI to quickly launch Shopify apps to a single machine.
-- [Render](https://render.com/docs/deploy-shopify-app): This tutorial guides you through using Docker to deploy and install apps on a Dev store.
-- [Manual deployment guide](https://shopify.dev/docs/apps/launch/deployment/deploy-to-hosting-service): This resource provides general guidance on the requirements of deployment including environment variables, secrets, and persistent data.
+### Root `npm run typecheck` reports errors inside `extensions/`
 
-When you reach the step for [setting up environment variables](https://shopify.dev/docs/apps/deployment/web#set-env-vars), you also need to set the variable `NODE_ENV=production`.
+The extension is its own TypeScript project (Preact JSX pragma, its own
+`@shopify/ui-extensions` types) with its own `tsconfig.json` — it must not be
+swept into the root check. Root `tsconfig.json` excludes `extensions/**` for
+exactly this reason; if that exclude ever gets removed, the root `tsc` run
+picks up the extension's `.tsx` files under a different type-resolution
+context and produces confusing, spurious errors that don't reproduce when
+checking the extension in isolation
+(`npx tsc -p extensions/thank-you-survey/tsconfig.json --noEmit`) — trust the
+isolated check, not the root one, for extension code.
 
-## Gotchas / Troubleshooting
+### `shopify.orderConfirmation.value` shape (checkout extension)
 
-### Database tables don't exist
+It's `{ order: { id: string }, number?: string, isFirstOrder: boolean }` —
+`order.id` is nested under `.order`, and `number` (top-level, not nested) is
+a `string`, not a `number`, and may be `undefined` for older orders. Reaching
+for `.value.id` or `.value.number as number` compiles fine in plain `.jsx`
+(no type checking) but is wrong at runtime — this exact mistake shipped
+silently for a while before the TypeScript rewrite caught it, quietly
+sending `undefined` as the order id on every submission instead of throwing.
 
-If you get an error like:
+### Two package managers in this repo
 
-```
-The table `main.Session` does not exist in the current database.
-```
+`package-lock.json` (npm) is what `Dockerfile` uses for production builds
+(`npm ci --omit=dev`). But `pnpm-workspace.yaml` also exists (for the
+`extensions/*` workspace), and `node_modules` is actually a pnpm virtual store
+under the hood (check: `extensions/thank-you-survey` deps or
+`node_modules/@shopify/*` entries are symlinks into `node_modules/.pnpm/`).
+This means local dependency resolution and the Docker build path aren't
+guaranteed to produce an identical `node_modules`. Nothing is actively broken
+by this, but it's worth knowing if you ever see behavior differ between local
+dev and a deployed build. Stick to npm commands at the root (`npm install`,
+`npm run ...`); running a raw `pnpm install` at the root can regenerate a
+stray `pnpm-lock.yaml` — delete it (or add it to `.gitignore`) rather than
+committing it, to keep `package-lock.json` as the single source of truth.
 
-Create the database for Prisma. Run the `setup` script in `package.json` using `npm`, `yarn` or `pnpm`.
+### `nbf` claim timestamp check failed
 
-### Navigating/redirecting breaks an embedded app
+A session/JWT token looks expired. Usually means your machine's clock is out
+of sync — enable "Set time and date automatically" in your OS date/time
+settings.
 
-Embedded apps must maintain the user session, which can be tricky inside an iFrame. To avoid issues:
+### `npm run dev` crashes: "This app is not approved to subscribe to webhook topics containing protected customer data"
 
-1. Use `Link` from `react-router` or `@shopify/polaris`. Do not use `<a>`.
-2. Use `redirect` returned from `authenticate.admin`. Do not use `redirect` from `react-router`
+Shopify classifies any webhook topic that can carry customer PII (e.g.
+`orders/*`, `customers/*`) as **Protected Customer Data**, and requires an
+approval step in the Partner Dashboard before an app can subscribe to it —
+this isn't something a config change or CLI flag can grant, and it crashes
+`shopify app dev` outright if you add such a topic to `shopify.app.toml`
+without that approval.
+
+This is why order tracking in this app (`app/routes/api.survey-view.tsx`)
+does **not** use an `orders/create` webhook or the `read_orders` scope. It
+only records the order id/number the checkout extension already has
+legitimate access to via `OrderConfirmationApi` — no protected data, no
+approval needed. The trade-off: the response-rate widget measures "of
+buyers who saw the survey, how many answered", not "% of all store orders"
+(the latter would need the approval-gated approach). If you want the full
+version later, request Protected Customer Data access for your app in the
+Partner Dashboard, then re-add `read_orders` to `access_scopes` and an
+`orders/create` webhook subscription in `shopify.app.toml`.
+
+## API reference
+
+All three routes below share the same auth: `authenticate.public.checkout` —
+the extension sends a session token (`shopify.sessionToken.get()`) as
+`Authorization: Bearer <token>`, and the server derives the shop from the
+token's `dest` claim.
+
+### `GET /api/active-survey`
+
+Response: `{ active, surveyId, title, description, questions }` where each
+question is `{ id, label, type, options, required }`, or `{ active: false }`
+if the shop has no survey yet, it's turned off, or has no questions.
+
+### `POST /api/survey-view`
+
+Body: `{ surveyId, orderId, orderNumber? }`.
+
+Called once the extension successfully loads an active survey. Upserts an
+`Order` row keyed by `(shopId, shopifyOrderId)` — this is the "shown to
+buyer" record the response-rate widget's denominator counts. Deliberately
+doesn't sync real order data (see the Protected Customer Data entry in the
+debugging playbook).
+
+### `POST /api/response`
+
+Body: `{ surveyId, answers: [{ questionId, answerValue }], orderId?, orderNumber? }`.
+
+Validates that the survey and every referenced question belong to the
+requesting shop, upserts an `Order` row the same way as above — falling back
+to a `pending:<session id>` placeholder if `orderId` wasn't available — and
+inserts one `Response` row per answer, all sharing a single `submissionId`.
+
+## Environment variables
+
+See `.env.example` for `DATABASE_URL`/`DIRECT_URL`. Production deployment
+(outside `npm run dev`) also needs `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`,
+`SCOPES`, and `SHOPIFY_APP_URL` set explicitly — locally the Shopify CLI
+injects these for you.
+
+## Framework-level gotchas (generic to the Shopify React Router template)
+
+<details>
+<summary>Database tables don't exist</summary>
+
+If you get an error like `The table "main.Session" does not exist in the
+current database`, run the `setup` script in `package.json` (`prisma generate
+&& prisma migrate deploy`).
+
+</details>
+
+<details>
+<summary>Navigating/redirecting breaks an embedded app</summary>
+
+Embedded apps must maintain the user session inside an iframe. To avoid issues:
+
+1. Use `Link` from `react-router`. Do not use `<a>`.
+2. Use `redirect` returned from `authenticate.admin`, not `redirect` from `react-router`.
 3. Use `useSubmit` from `react-router`.
 
-This only applies if your app is embedded, which it will be by default.
+</details>
 
-### Webhooks: shop-specific webhook subscriptions aren't updated
+<details>
+<summary>Webhooks: shop-specific subscriptions aren't updated</summary>
 
-If you are registering webhooks in the `afterAuth` hook, using `shopify.registerWebhooks`, you may find that your subscriptions aren't being updated.
+If registering webhooks in the `afterAuth` hook via `shopify.registerWebhooks`,
+subscriptions may not update on their own. Prefer declaring webhooks in
+`shopify.app.toml` instead — Shopify syncs them automatically on every
+`npm run deploy`.
 
-Instead of using the `afterAuth` hook declare app-specific webhooks in the `shopify.app.toml` file. This approach is easier since Shopify will automatically sync changes every time you run `deploy` (e.g: `npm run deploy`). Please read these guides to understand more:
+</details>
 
-1. [app-specific vs shop-specific webhooks](https://shopify.dev/docs/apps/build/webhooks/subscribe#app-specific-subscriptions)
-2. [Create a subscription tutorial](https://shopify.dev/docs/apps/build/webhooks/subscribe/get-started?deliveryMethod=https)
+<details>
+<summary>Webhooks: Admin-created webhooks fail HMAC validation</summary>
 
-If you do need shop-specific webhooks, keep in mind that the package calls `afterAuth` in 2 scenarios:
+Webhook subscriptions created directly in the Shopify admin aren't signed
+with your app's secret and will fail validation. Use app-specific webhooks
+defined in `shopify.app.toml` instead.
 
-- After installing the app
-- When an access token expires
+</details>
 
-During normal development, the app won't need to re-authenticate most of the time, so shop-specific subscriptions aren't updated. To force your app to update the subscriptions, uninstall and reinstall the app. Revisiting the app will call the `afterAuth` hook.
+<details>
+<summary>Webhooks: `admin` object is undefined when triggered by the CLI</summary>
 
-### Webhooks: Admin created webhook failing HMAC validation
+`shopify webhook trigger` sends a valid-but-nonexistent shop, so `admin` is
+`undefined`. This is expected — it's only for testing that the webhook
+handler itself runs, not real data flow.
 
-Webhooks subscriptions created in the [Shopify admin](https://help.shopify.com/en/manual/orders/notifications/webhooks) will fail HMAC validation. This is because the webhook payload is not signed with your app's secret key.
+</details>
 
-The recommended solution is to use [app-specific webhooks](https://shopify.dev/docs/apps/build/webhooks/subscribe#app-specific-subscriptions) defined in your toml file instead. Test your webhooks by triggering events manually in the Shopify admin(e.g. Updating the product title to trigger a `PRODUCTS_UPDATE`).
+<details>
+<summary>Incorrect GraphQL hints in the editor</summary>
 
-### Webhooks: Admin object undefined on webhook events triggered by the CLI
+The `graphql.vscode-graphql` extension assumes queries target the Shopify
+Admin API by default. If you use another API, update `.graphqlrc.ts`.
 
-When you trigger a webhook event using the Shopify CLI, the `admin` object will be `undefined`. This is because the CLI triggers an event with a valid, but non-existent, shop. The `admin` object is only available when the webhook is triggered by a shop that has installed the app. This is expected.
+</details>
 
-Webhooks triggered by the CLI are intended for initial experimentation testing of your webhook configuration. For more information on how to test your webhooks, see the [Shopify CLI documentation](https://shopify.dev/docs/apps/tools/cli/commands#webhook-trigger).
+<details>
+<summary>Streaming responses with `await`/`Await` don't work locally</summary>
 
-### Incorrect GraphQL Hints
+The CLI's Cloudflare tunnel buffers the full response before sending it, so
+streaming won't be visible locally (production is unaffected). Use
+localhost-based development to test streaming.
 
-By default the [graphql.vscode-graphql](https://marketplace.visualstudio.com/items?itemName=GraphQL.vscode-graphql) extension for will assume that GraphQL queries or mutations are for the [Shopify Admin API](https://shopify.dev/docs/api/admin). This is a sensible default, but it may not be true if:
+</details>
 
-1. You use another Shopify API such as the storefront API.
-2. You use a third party GraphQL API.
+<details>
+<summary>Using MongoDB and Prisma</summary>
 
-If so, please update [.graphqlrc.ts](https://github.com/Shopify/shopify-app-template-react-router/blob/main/.graphqlrc.ts).
+See the [Prisma SessionStorage README](https://www.npmjs.com/package/@shopify/shopify-app-session-storage-prisma#mongodb)
+for MongoDB-specific caveats if you switch datasource providers.
 
-### Using Defer & await for streaming responses
+</details>
 
-By default the CLI uses a cloudflare tunnel. Unfortunately cloudflare tunnels wait for the Response stream to finish, then sends one chunk. This will not affect production.
+<details>
+<summary>Windows: <code>query_engine-windows.dll.node</code> is not a valid Win32 application</summary>
 
-To test [streaming using await](https://reactrouter.com/api/components/Await#await) during local development we recommend [localhost based development](https://shopify.dev/docs/apps/build/cli-for-apps/networking-options#localhost-based-development).
+Set `PRISMA_CLIENT_ENGINE_TYPE=binary` to force Prisma's binary engine mode.
 
-### "nbf" claim timestamp check failed
-
-This is because a JWT token is expired. If you are consistently getting this error, it could be that the clock on your machine is not in sync with the server. To fix this ensure you have enabled "Set time and date automatically" in the "Date and Time" settings on your computer.
-
-### Using MongoDB and Prisma
-
-If you choose to use MongoDB with Prisma, there are some gotchas in Prisma's MongoDB support to be aware of. Please see the [Prisma SessionStorage README](https://www.npmjs.com/package/@shopify/shopify-app-session-storage-prisma#mongodb).
-
-### Unable to require(`C:\...\query_engine-windows.dll.node`).
-
-Unable to require(`C:\...\query_engine-windows.dll.node`).
-The Prisma engines do not seem to be compatible with your system.
-
-query_engine-windows.dll.node is not a valid Win32 application.
-
-**Fix:** Set the environment variable:
-
-```shell
-PRISMA_CLIENT_ENGINE_TYPE=binary
-```
-
-This forces Prisma to use the binary engine mode, which runs the query engine as a separate process and can work via emulation on Windows ARM64.
+</details>
 
 ## Resources
 
-React Router:
-
-- [React Router docs](https://reactrouter.com/home)
-
-Shopify:
-
-- [Intro to Shopify apps](https://shopify.dev/docs/apps/getting-started)
 - [Shopify App React Router docs](https://shopify.dev/docs/api/shopify-app-react-router)
+- [Checkout UI extensions](https://shopify.dev/docs/api/checkout-ui-extensions)
+- [Thank you and Order status page customization](https://shopify.dev/docs/apps/build/checkout/thank-you-order-status)
+- [Polaris web components (app home)](https://shopify.dev/docs/api/app-home/polaris-web-components)
+- [Prisma docs](https://www.prisma.io/docs)
 - [Shopify CLI](https://shopify.dev/docs/apps/tools/cli)
-- [Shopify App Bridge](https://shopify.dev/docs/api/app-bridge-library).
-- [Polaris Web Components](https://shopify.dev/docs/api/app-home/polaris-web-components).
-- [App extensions](https://shopify.dev/docs/apps/app-extensions/list)
-- [Shopify Functions](https://shopify.dev/docs/api/functions)
-
-Internationalization:
-
-- [Internationalizing your app](https://shopify.dev/docs/apps/best-practices/internationalization/getting-started)

@@ -1,0 +1,25 @@
+# Learn more about configuring your checkout UI extension:
+# https://shopify.dev/docs/api/checkout-ui-extensions/latest/configuration
+
+# The version of APIs your extension will receive. Learn more:
+# https://shopify.dev/docs/api/usage/versioning
+api_version = "2026-07"
+
+[[extensions]]
+name = "thank-you-survey"
+handle = "thank-you-survey"
+type = "ui_extension"
+uid = "36589f62-9892-39cb-2f34-f27a46d18b634b74a298"
+
+# Renders a post-purchase survey block on the Thank you page. Learn more:
+# https://shopify.dev/docs/api/checkout-ui-extensions/latest/extension-targets-overview
+
+[[extensions.targeting]]
+module = "./src/ThankYouPageSurvey.tsx"
+target = "purchase.thank-you.block.render"
+
+[extensions.capabilities]
+# Gives the extension access to make a network call to our app backend to
+# persist survey responses. Learn more:
+# https://shopify.dev/docs/api/checkout-ui-extensions/latest/configuration#network-access
+network_access = true
