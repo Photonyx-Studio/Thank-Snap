@@ -15,9 +15,9 @@ Merchant                                Customer
    ▼                                        ▼
 Survey page                        Thank you page
 (app/routes/app.survey.tsx)        (extensions/thank-you-survey)
-   │  saves Survey + Questions             │  GET  /api/survey-config
+   │  saves Survey + Questions             │  GET  /api/active-survey
    │  (heading, description,               │       → current questions + options
-   │   questions, active)                  │  POST /api/survey-response
+   │   questions, active)                  │  POST /api/response
    ▼                                       ▼       → records answers (one call, all questions)
              Postgres (Shop, Survey, Question, Order, Response)
 ```
@@ -204,7 +204,7 @@ Three independent things all have to be true — check in this order:
    banner**, not silence — if you see that banner, this is the fix.
 3. **The survey is active.** The app home page has to have been opened at
    least once (creates default `Survey`/`Question` rows), and the "Show
-   survey" switch left on. If `GET /api/survey-config` returns
+   survey" switch left on. If `GET /api/active-survey` returns
    `{ "active": false }`, the extension renders nothing — by design, not a
    bug.
 
@@ -238,18 +238,17 @@ for `.value.id` or `.value.number as number` compiles fine in plain `.jsx`
 silently for a while before the TypeScript rewrite caught it, quietly
 sending `undefined` as the order id on every submission instead of throwing.
 
-### Two package managers in this repo (resolved, but watch for it)
+### Two package managers (historical — resolved)
 
 This repo used to have a stray `pnpm-workspace.yaml` alongside `npm`'s
 `package-lock.json`, and `node_modules` was actually a pnpm virtual store
 under the hood — meaning local dependency resolution and the Docker build
-path (`npm ci`) weren't guaranteed to produce the same tree. This got fixed
-by deleting `node_modules` (root and `extensions/thank-you-survey`) and
-`package-lock.json`, then running a plain `npm install` — everything is now
-npm-hoisted and consistent. `pnpm-workspace.yaml` is still sitting in the
-repo unused; harmless, but don't let it fool you into running `pnpm install`
-at the root, which would recreate the same mess. Stick to npm commands only
-(`npm install`, `npm run ...`).
+path (`npm ci`) weren't guaranteed to produce the same tree. Fixed by
+deleting `node_modules` (root and `extensions/thank-you-survey`),
+`package-lock.json`, and the unused `pnpm-workspace.yaml`, then running a
+plain `npm install` — everything is npm-hoisted and consistent now. Stick to
+npm commands only (`npm install`, `npm run ...`); don't run `pnpm install`
+at the root.
 
 ### `nbf` claim timestamp check failed
 

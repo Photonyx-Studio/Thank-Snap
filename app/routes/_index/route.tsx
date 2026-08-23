@@ -21,9 +21,10 @@ export default function App() {
   return (
     <div className={styles.index}>
       <div className={styles.content}>
-        <h1 className={styles.heading}>A short heading about [your app]</h1>
+        <h1 className={styles.heading}>ThankSnap</h1>
         <p className={styles.text}>
-          A tagline about [your app] that describes your value proposition.
+          A post-purchase survey for your Thank you page — find out how
+          customers found your store, right after they check out.
         </p>
         {showForm && (
           <Form className={styles.form} method="post" action="/auth/login">
@@ -39,16 +40,18 @@ export default function App() {
         )}
         <ul className={styles.list}>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Customizable survey</strong>. Build your own questions —
+            single choice, multiple choice, short text, or a rating — or
+            start from a ready-made template.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Seamless checkout integration</strong>. Renders as a
+            native block on the Thank you page, matching your checkout&apos;s
+            look and feel.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Response tracking</strong>. See every answer and your
+            response rate right from your dashboard.
           </li>
         </ul>
       </div>
