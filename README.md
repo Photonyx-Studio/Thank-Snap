@@ -238,20 +238,18 @@ for `.value.id` or `.value.number as number` compiles fine in plain `.jsx`
 silently for a while before the TypeScript rewrite caught it, quietly
 sending `undefined` as the order id on every submission instead of throwing.
 
-### Two package managers in this repo
+### Two package managers in this repo (resolved, but watch for it)
 
-`package-lock.json` (npm) is what `Dockerfile` uses for production builds
-(`npm ci --omit=dev`). But `pnpm-workspace.yaml` also exists (for the
-`extensions/*` workspace), and `node_modules` is actually a pnpm virtual store
-under the hood (check: `extensions/thank-you-survey` deps or
-`node_modules/@shopify/*` entries are symlinks into `node_modules/.pnpm/`).
-This means local dependency resolution and the Docker build path aren't
-guaranteed to produce an identical `node_modules`. Nothing is actively broken
-by this, but it's worth knowing if you ever see behavior differ between local
-dev and a deployed build. Stick to npm commands at the root (`npm install`,
-`npm run ...`); running a raw `pnpm install` at the root can regenerate a
-stray `pnpm-lock.yaml` — delete it (or add it to `.gitignore`) rather than
-committing it, to keep `package-lock.json` as the single source of truth.
+This repo used to have a stray `pnpm-workspace.yaml` alongside `npm`'s
+`package-lock.json`, and `node_modules` was actually a pnpm virtual store
+under the hood — meaning local dependency resolution and the Docker build
+path (`npm ci`) weren't guaranteed to produce the same tree. This got fixed
+by deleting `node_modules` (root and `extensions/thank-you-survey`) and
+`package-lock.json`, then running a plain `npm install` — everything is now
+npm-hoisted and consistent. `pnpm-workspace.yaml` is still sitting in the
+repo unused; harmless, but don't let it fool you into running `pnpm install`
+at the root, which would recreate the same mess. Stick to npm commands only
+(`npm install`, `npm run ...`).
 
 ### `nbf` claim timestamp check failed
 
