@@ -1,7 +1,18 @@
-import type { ActionFunctionArgs } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { findShopBySessionToken } from "../models/shop.server";
 import db from "../db.server";
+
+// This route only ever receives POST requests from the extension, but a
+// browser's CORS preflight for that POST arrives as an OPTIONS request —
+// and without a loader present, that OPTIONS request never reaches
+// authenticate.public.checkout()'s built-in preflight handling (it throws a
+// 204 + CORS-headers Response when request.method === "OPTIONS"), so the
+// browser's preflight check fails before the real POST is ever attempted.
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  await authenticate.public.checkout(request);
+  return new Response(null, { status: 405 });
+};
 
 interface SurveyResponseBody {
   surveyId: string;

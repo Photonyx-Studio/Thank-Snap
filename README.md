@@ -29,8 +29,11 @@ Survey page                        Thank you page
   app backend over an **absolute URL** hardcoded in
   `extensions/thank-you-survey/src/shared.tsx` (`APP_URL`), authenticated with
   a checkout session token (`shopify.sessionToken.get()` → `authenticate.public.checkout`
-  on the server). This URL is the `npm run dev` tunnel URL locally, and changes
-  every time you restart `npm run dev` — see the debugging playbook below.
+  on the server). `APP_URL` is pointed at the permanent production deployment
+  (`https://app.thanksnap.com`) rather than a local dev tunnel — you can still
+  preview the extension locally via `npm run dev` (see
+  [Local development](#local-development) below), it'll just talk to the real
+  production backend/database instead of a local one.
 
 ## Data model (`prisma/schema.prisma`)
 
@@ -126,22 +129,21 @@ from what was last saved.
 
 1. `npm install`
 2. `npm run dev` — runs `shopify app dev`, which also runs `prisma generate`
-   and `prisma migrate deploy` automatically (see `shopify.web.toml`).
-3. Copy the tunnel URL the CLI prints (`Using URL: https://....trycloudflare.com`)
-   into `APP_URL` in `extensions/thank-you-survey/src/shared.tsx`. **Do this
-   every time you restart `npm run dev`** — the tunnel URL is ephemeral and
-   the extension can't discover it on its own. If you forget, the extension
-   shows a warning banner instead of silently failing.
-4. In Shopify admin: **Online Store → Themes → Customize** on your theme →
+   and `prisma migrate deploy` automatically (see `shopify.web.toml`). No
+   need to touch `APP_URL` in the extension — it's pointed at the permanent
+   production deployment, not the local dev tunnel.
+3. In Shopify admin: **Online Store → Themes → Customize** on your theme →
    switch the page dropdown at the top from "Home page" to **Checkout** →
    select the **Thank you** tab → click into the page body → **Add app
    block** → choose **thank-you-survey**. This is a one-time setup per store;
    the placement persists across dev sessions.
-5. Open the app's home page in the Shopify admin at least once (creates the
+4. Open the app's home page in the Shopify admin at least once (creates the
    default `Survey`/`Question` rows) and make sure "Show survey on the Thank
    you page" is on.
-6. Place a test order on the dev store — the survey should appear on the
-   Thank you page and submitting it should create a `Response` row.
+5. Place a test order on the dev store — the survey should appear on the
+   Thank you page and submitting it should create a `Response` row in the
+   **production** database (`app/routes/api.response.tsx`), since `APP_URL`
+   now points there regardless of whether you're running `npm run dev` or not.
 
 ## Debugging playbook
 
@@ -191,22 +193,23 @@ is useful for generating the SQL) and apply it with `npx prisma migrate deploy`.
 
 ### Survey doesn't show up on the Thank you page
 
-Three independent things all have to be true — check in this order:
+Two independent things all have to be true — check in this order:
 
 1. **Block is placed in the checkout editor.** Block-target extensions never
-   auto-appear on a real checkout. See step 4 under
+   auto-appear on a real checkout. See step 3 under
    [Local development](#local-development). (You can skip this while
    iterating by using the CLI dev console's preview link instead — press `p`
    after `npm run dev`.)
-2. **`APP_URL` in `shared.tsx` is current.** It's the `npm run dev` tunnel
-   URL and changes every session. If it's stale or still the
-   `https://example.com` placeholder, the extension renders a **warning
-   banner**, not silence — if you see that banner, this is the fix.
-3. **The survey is active.** The app home page has to have been opened at
+2. **The survey is active.** The app home page has to have been opened at
    least once (creates default `Survey`/`Question` rows), and the "Show
    survey" switch left on. If `GET /api/active-survey` returns
    `{ "active": false }`, the extension renders nothing — by design, not a
    bug.
+
+If `APP_URL` in `shared.tsx` is ever wrong/unreachable (e.g. you point it
+back at a dev tunnel and that session ends), the extension renders a
+**warning banner**, not silence — so a genuinely blank Thank you page means
+one of the two things above, not a stale URL.
 
 ### `npm run typecheck`/`npm run lint` fails after `shopify app generate extension` or `shopify app build`
 

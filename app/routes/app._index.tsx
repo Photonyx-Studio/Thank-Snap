@@ -11,32 +11,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     getOrCreateSurvey(session.shop),
     getResponseStats(session.shop),
   ]);
-  const storeHandle = session.shop.replace(/\.myshopify\.com$/, "");
-  return { ...survey, stats, storeHandle };
+  return { ...survey, stats };
 };
 
 export default function Index() {
-  const { survey, questions, stats, storeHandle } = useLoaderData<typeof loader>();
+  const { survey, questions, stats } = useLoaderData<typeof loader>();
 
   return (
     <s-page heading="thank-snap">
-      <s-section heading="Add the survey to your checkout">
-        <s-paragraph>
-          Shopify requires you to place app blocks in checkout yourself —
-          apps can&apos;t add themselves automatically. This jumps you
-          straight to the checkout settings; from there click{" "}
-          <s-text type="strong">Customize checkout</s-text>, open the{" "}
-          <s-text type="strong">Thank you</s-text> page, and add the{" "}
-          <s-text type="strong">thank-you-survey</s-text> app block.
-        </s-paragraph>
-        <s-button
-          href={`https://admin.shopify.com/store/${storeHandle}/settings/checkout`}
-          target="_blank"
-        >
-          Open checkout settings
-        </s-button>
-      </s-section>
-
       <s-section heading="Thank you page survey">
         <s-stack direction="inline" gap="base" alignItems="center">
           <s-badge tone={survey.active ? "success" : "neutral"}>

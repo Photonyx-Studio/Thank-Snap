@@ -20,11 +20,12 @@ type FieldChangeEvent<Tag extends keyof HTMLElementTagNameMap> = Event & {
   currentTarget: HTMLElementTagNameMap[Tag];
 };
 
-// Your app's URL, used to send survey responses to the backend.
-// Locally this is the tunnel URL Shopify CLI prints when you run `npm run dev`
-// (also written to `application_url` in shopify.app.toml). In production, use
-// your deployed app's URL.
-export const APP_URL = "https://categories-cambridge-screensavers-apartments.trycloudflare.com";
+// Your app's URL, used to send survey responses to the backend. Pointed at
+// the permanent production deployment rather than a local dev tunnel — the
+// extension can be previewed via `npm run dev` (bypasses the checkout
+// editor/app-version requirements) while still talking to the real,
+// always-on backend, so this no longer needs updating every dev session.
+export const APP_URL = "https://app.thanksnap.com";
 
 interface StorageState<T> {
   data: T | undefined;

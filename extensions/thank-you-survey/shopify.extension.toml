@@ -23,3 +23,5 @@ target = "purchase.thank-you.block.render"
 # persist survey responses. Learn more:
 # https://shopify.dev/docs/api/checkout-ui-extensions/latest/configuration#network-access
 network_access = true
+block_progress = true
+api_access = true
