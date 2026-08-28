@@ -2,7 +2,7 @@
 
 client_id = "7eb5d1def41d9d84096bd528642361e9"
 name = "thank-snap"
-application_url = "https://example.com"
+application_url = "https://app.thanksnap.com"
 embedded = true
 
 [access_scopes]
@@ -45,8 +45,7 @@ api_version = "2026-07"
   topics = [ "app/scopes_update" ]
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://app.thanksnap.com/auth/callback" ]
 
 [build]
-include_config_on_deploy = true
 automatically_update_urls_on_dev = true

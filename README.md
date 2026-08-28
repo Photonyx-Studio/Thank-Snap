@@ -250,6 +250,23 @@ plain `npm install` — everything is npm-hoisted and consistent now. Stick to
 npm commands only (`npm install`, `npm run ...`); don't run `pnpm install`
 at the root.
 
+### Supabase tables are publicly readable/writable via REST, bypassing app auth
+
+Supabase auto-exposes every table in the `public` schema over a REST API
+(PostgREST), gated only by an API key — not by this app's own
+`authenticate.admin`/`authenticate.public.checkout` checks. Without Row
+Level Security (RLS), anyone holding the project's anon key (findable in the
+Supabase dashboard) can read/write every table directly — including
+`Session`, which stores live Shopify access tokens.
+
+**Fix:** RLS is enabled (migration `20260827230122_enable_row_level_security`)
+with no policies defined — a default-deny that blocks the anon/authenticated
+PostgREST roles entirely. This does **not** affect the app itself: Prisma
+connects as the `postgres` role (the table owner), and owners bypass RLS
+unless `FORCE ROW LEVEL SECURITY` is also set, which is deliberately not
+used here. If you ever add new tables, remember to enable RLS on them too —
+it's not the default.
+
 ### `nbf` claim timestamp check failed
 
 A session/JWT token looks expired. Usually means your machine's clock is out
