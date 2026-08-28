@@ -26,13 +26,13 @@ export const shouldRevalidate = () => false;
 export default function App() {
   const { apiKey } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
+  const isNavigating = navigation.state !== "idle";
 
-  // Shows Shopify's native top-of-admin progress bar while a Home / Survey /
-  // Responses navigation is loading, so the app doesn't look frozen while
-  // its loader data fetches.
+  // Also flips Shopify's native top-of-admin progress bar, for consistency
+  // with the rest of the admin while the loading screen below is showing.
   useEffect(() => {
-    window.shopify?.loading(navigation.state !== "idle");
-  }, [navigation.state]);
+    window.shopify?.loading(isNavigating);
+  }, [isNavigating]);
 
   return (
     <AppProvider embedded apiKey={apiKey}>
@@ -41,7 +41,22 @@ export default function App() {
         <s-link href="/app/survey">Survey</s-link>
         <s-link href="/app/responses">Responses</s-link>
       </s-app-nav>
-      <Outlet />
+      {isNavigating ? (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "1rem",
+            minHeight: "60vh",
+          }}
+        >
+          <s-spinner accessibilityLabel="Loading" size="large" />
+        </div>
+      ) : (
+        <Outlet />
+      )}
     </AppProvider>
   );
 }
