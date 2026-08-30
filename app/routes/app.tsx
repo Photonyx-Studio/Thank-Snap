@@ -19,7 +19,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await billing.require({
     plans: [STARTER_PLAN],
     isTest: true,
-    onFailure: async () => billing.request({ plan: STARTER_PLAN }),
+    onFailure: async () => {
+      try {
+        return await billing.request({ plan: STARTER_PLAN });
+      } catch (error) {
+        // BillingError's `errorData` holds the GraphQL userErrors that
+        // explain *why* Shopify rejected the charge - the bare stack trace
+        // doesn't include it, so log it explicitly to diagnose failures.
+        console.error(
+          "billing.request failed",
+          (error as { errorData?: unknown })?.errorData ?? error,
+        );
+        throw error;
+      }
+    },
   });
 
   // eslint-disable-next-line no-undef
