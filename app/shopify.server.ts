@@ -2,14 +2,12 @@ import "@shopify/shopify-app-react-router/adapters/node";
 import {
   ApiVersion,
   AppDistribution,
-  BillingInterval,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 import { getAppUrl } from "./utils/app-url";
-
-export const STARTER_PLAN = "Starter";
+import { billingConfig } from "./billing.server";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -23,18 +21,7 @@ const shopify = shopifyApp({
   future: {
     expiringOfflineAccessTokens: true,
   },
-  billing: {
-    [STARTER_PLAN]: {
-      trialDays: 14,
-      lineItems: [
-        {
-          amount: 19,
-          currencyCode: "USD",
-          interval: BillingInterval.Every30Days,
-        },
-      ],
-    },
-  },
+  billing: billingConfig,
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
