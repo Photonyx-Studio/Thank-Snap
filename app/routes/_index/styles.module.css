@@ -85,11 +85,8 @@
 
 .form {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
   justify-content: center;
   margin: 0.5rem auto 0;
-  gap: 0.9rem;
   width: 100%;
   padding: 1.5rem;
   border: 1px solid var(--line);
@@ -97,14 +94,30 @@
   box-sizing: border-box;
 }
 
-.label {
+.field {
   display: grid;
   gap: 0.35rem;
   width: 100%;
-  max-width: 20rem;
+  max-width: 24rem;
   text-align: left;
+}
+
+.label {
   font-size: 0.92rem;
   font-weight: 600;
+}
+
+/* Input and button live in one row, same height, so the button aligns
+   with the input itself rather than the field's full label+hint stack. */
+.controlRow {
+  display: flex;
+  align-items: stretch;
+  gap: 0.6rem;
+}
+
+.controlRow .input {
+  flex: 1;
+  min-width: 0;
 }
 
 .hint {
@@ -185,5 +198,12 @@
   .list > li {
     padding-bottom: 1rem;
     border-top: 1px solid var(--line);
+  }
+}
+
+@media only screen and (max-width: 26rem) {
+  .controlRow {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

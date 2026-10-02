@@ -64,20 +64,27 @@ export default function App() {
         </p>
         {showForm && (
           <Form className={styles.form} method="post" action="/auth/login">
-            <label className={styles.label}>
-              <span>Shop domain</span>
-              <input
-                className={styles.input}
-                type="text"
-                name="shop"
-                autoComplete="off"
-                placeholder="my-shop-domain.myshopify.com"
-              />
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor="shop">
+                Shop domain
+              </label>
+              {/* Input and button share one row so the button aligns with
+                  the input itself, not with the hint caption below it. */}
+              <div className={styles.controlRow}>
+                <input
+                  className={styles.input}
+                  id="shop"
+                  type="text"
+                  name="shop"
+                  autoComplete="off"
+                  placeholder="my-shop-domain.myshopify.com"
+                />
+                <button className={styles.button} type="submit">
+                  Log in
+                </button>
+              </div>
               <span className={styles.hint}>e.g: my-shop-domain.myshopify.com</span>
-            </label>
-            <button className={styles.button} type="submit">
-              Log in
-            </button>
+            </div>
           </Form>
         )}
         <ul className={styles.list}>
