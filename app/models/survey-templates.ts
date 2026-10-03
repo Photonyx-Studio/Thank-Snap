@@ -8,14 +8,11 @@ export interface SurveyTemplate {
 }
 
 export const SURVEY_TEMPLATES: SurveyTemplate[] = [
-  {
-    id: "classic-attribution",
-    name: "Classic attribution",
-    icon: "📺",
-    questionLabel: "How did you hear about us?",
-    description: "We would like to learn how you found us.",
-    options: ["TV", "Podcast", "Friend or family", "Social media", "Search engine"],
-  },
+  // Default template (see DEFAULT_OPTIONS/DEFAULT_QUESTION_LABEL in
+  // survey.server.ts, which take whichever template is first here) - broken
+  // out by individual platform rather than one generic "Social media"
+  // bucket, since that's what the attribution breakdown is actually meant
+  // to compare.
   {
     id: "social-first",
     name: "Social-first",
@@ -30,6 +27,14 @@ export const SURVEY_TEMPLATES: SurveyTemplate[] = [
       "Google search",
       "Friend or family",
     ],
+  },
+  {
+    id: "classic-attribution",
+    name: "Classic attribution",
+    icon: "📺",
+    questionLabel: "How did you hear about us?",
+    description: "We would like to learn how you found us.",
+    options: ["TV", "Podcast", "Friend or family", "Social media", "Search engine"],
   },
   {
     id: "marketing-channels",
