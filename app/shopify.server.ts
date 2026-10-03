@@ -4,9 +4,9 @@ import {
   AppDistribution,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
-import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 import { getAppUrl } from "./utils/app-url";
+import { EncryptedPrismaSessionStorage } from "./encrypted-session-storage.server";
 
 // Billing is handled by Shopify App Pricing (see subscription.server.ts),
 // which is configured in the Partner Dashboard rather than here - this app
@@ -18,7 +18,9 @@ const shopify = shopifyApp({
   scopes: process.env.SCOPES?.split(","),
   appUrl: getAppUrl(),
   authPathPrefix: "/auth",
-  sessionStorage: new PrismaSessionStorage(prisma),
+  // Encrypts accessToken/refreshToken at rest (AES-256-GCM) before they
+  // reach Supabase - see encrypted-session-storage.server.ts.
+  sessionStorage: new EncryptedPrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
   future: {
     expiringOfflineAccessTokens: true,
