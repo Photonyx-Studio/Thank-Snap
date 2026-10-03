@@ -49,6 +49,7 @@ export default function App() {
         <s-link href="/app/survey">Survey</s-link>
         <s-link href="/app/responses">Responses</s-link>
         <s-link href="/app/billing">Billing</s-link>
+        <s-link href="/app/feedback">Contact us</s-link>
       </s-app-nav>
       {isNavigating ? (
         <div
