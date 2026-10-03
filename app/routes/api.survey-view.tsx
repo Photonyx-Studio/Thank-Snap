@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
-import { findShopBySessionToken } from "../models/shop.server";
+import { shopDomainFromSessionToken } from "../models/shop.server";
 import db from "../db.server";
 
 // This route only ever receives POST requests from the extension, but a
@@ -38,12 +38,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return cors(Response.json({ error: "surveyId and orderId are required" }, { status: 400 }));
   }
 
-  const shop = await findShopBySessionToken(sessionToken);
-  const survey = shop
-    ? await db.survey.findFirst({ where: { id: surveyId, shopId: shop.id } })
-    : null;
+  // One query (shop -> the matching survey) instead of two sequential round
+  // trips - this fires on every Thank you page view, so it counts toward
+  // Shopify's checkout performance score.
+  const shop = await db.shop.findUnique({
+    where: { shopDomain: shopDomainFromSessionToken(sessionToken) },
+    include: { surveys: { where: { id: surveyId }, take: 1, select: { id: true } } },
+  });
 
-  if (!shop || !survey) {
+  if (!shop || shop.surveys.length === 0) {
     return cors(Response.json({ error: "Unknown survey" }, { status: 404 }));
   }
 
