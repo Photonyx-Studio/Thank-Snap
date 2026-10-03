@@ -1,4 +1,5 @@
 import db from "../db.server";
+import { percentage } from "../utils/percentage";
 
 export interface ResponseStats {
   /** Orders where the survey was shown to the buyer (an Order row exists). */
@@ -32,7 +33,6 @@ export async function getResponseStats(shopDomain: string): Promise<ResponseStat
   return {
     surveysShown,
     surveysAnswered,
-    responseRate:
-      surveysShown > 0 ? Math.round((surveysAnswered / surveysShown) * 1000) / 10 : null,
+    responseRate: percentage(surveysAnswered, surveysShown),
   };
 }
