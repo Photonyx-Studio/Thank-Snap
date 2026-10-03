@@ -4,21 +4,71 @@ import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { getOrCreateSurvey } from "../models/survey.server";
 import { getResponseStats } from "../models/stats.server";
+import { getUsageStatus } from "../subscription.server";
+
+// Nudge merchants toward upgrading before they actually hit the wall.
+const USAGE_WARNING_THRESHOLD = 0.8;
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const [survey, stats] = await Promise.all([
+  const [survey, stats, usage] = await Promise.all([
     getOrCreateSurvey(session.shop),
     getResponseStats(session.shop),
+    getUsageStatus(session.shop),
   ]);
-  return { ...survey, stats };
+  return { ...survey, stats, usage };
 };
 
 export default function Index() {
-  const { survey, questions, stats } = useLoaderData<typeof loader>();
+  const { survey, questions, stats, usage } = useLoaderData<typeof loader>();
+  const usageRatio =
+    usage.orderCap !== null ? usage.currentCount / usage.orderCap : 0;
+  // Nobody has ever seen the survey - most likely because it hasn't been
+  // added to the checkout editor yet (installing the app never does this
+  // automatically), rather than the store simply having no traffic.
+  const likelyNotAddedToCheckout = stats.surveysShown === 0;
 
   return (
     <s-page heading="thank-snap">
+      {likelyNotAddedToCheckout ? (
+        <s-banner heading="One more step: add the survey to your Thank you page" tone="warning">
+          <s-paragraph>
+            Installing the app doesn&apos;t place the survey automatically.
+            Open checkout settings, click <strong>Customize checkout</strong>,
+            then switch the page selector at the top of that editor to{" "}
+            <strong>Thank you page</strong> and add the thank-snap block
+            there — not the checkout steps, which is a different page in
+            the same editor.
+          </s-paragraph>
+          <s-link href="shopify:admin/settings/checkout">
+            Open checkout settings
+          </s-link>
+        </s-banner>
+      ) : null}
+
+      {/* Two-stage warning: a critical banner once the survey has actually
+          stopped (isOverCap), a softer one as it approaches the limit
+          (USAGE_WARNING_THRESHOLD) so merchants can upgrade before it does. */}
+      {usage.isOverCap ? (
+        <s-banner heading="You've reached your plan's order limit" tone="critical">
+          <s-paragraph>
+            {usage.currentCount} / {usage.orderCap} orders this month - the
+            survey has stopped showing on your Thank you page until you
+            upgrade or next month starts.
+          </s-paragraph>
+          <s-link href="/app/billing">Upgrade your plan</s-link>
+        </s-banner>
+      ) : usage.orderCap !== null && usageRatio >= USAGE_WARNING_THRESHOLD ? (
+        <s-banner heading="Approaching your plan's order limit" tone="warning">
+          <s-paragraph>
+            {usage.currentCount} / {usage.orderCap} orders this month.
+            Upgrade before you hit the limit to keep the survey running
+            without interruption.
+          </s-paragraph>
+          <s-link href="/app/billing">View plans</s-link>
+        </s-banner>
+      ) : null}
+
       <s-section heading="Thank you page survey">
         <s-stack direction="inline" gap="base" alignItems="center">
           <s-badge tone={survey.active ? "success" : "neutral"}>
@@ -36,8 +86,11 @@ export default function Index() {
       <s-section heading="Response rate">
         {stats.surveysShown === 0 ? (
           <s-paragraph>
-            No one has seen the survey yet. This fills in once customers
-            start reaching the Thank you page.
+            No one has seen the survey yet. If you haven&apos;t already, go
+            to Settings → Checkout → Customize checkout, switch to the{" "}
+            <strong>Thank you page</strong> template in that editor, and add
+            the survey block there — it won&apos;t show to customers until
+            you do.
           </s-paragraph>
         ) : (
           <s-stack direction="inline" gap="base" alignItems="center">
@@ -56,9 +109,16 @@ export default function Index() {
       <s-section slot="aside" heading="How it works">
         <s-paragraph>
           Customers see this survey on the Thank you page after checkout,
-          through the &ldquo;thank-you-survey&rdquo; checkout extension. Their
-          answers are saved and linked to the order.
+          through the &ldquo;thank-you-survey&rdquo; checkout extension — but
+          only once you&apos;ve added it there yourself, specifically on the{" "}
+          <strong>Thank you page</strong> template (the checkout editor also
+          covers the checkout steps themselves, which is a separate page in
+          the same editor and not where this block goes). Their answers are
+          saved and linked to the order.
         </s-paragraph>
+        <s-link href="shopify:admin/settings/checkout">
+          Open checkout settings
+        </s-link>
         <s-paragraph>
           Response rate is measured against customers who actually saw the
           survey, not every order in the store — tracking all orders would
