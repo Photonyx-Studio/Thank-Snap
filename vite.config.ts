@@ -37,7 +37,12 @@ if (host === "localhost") {
 
 export default defineConfig({
   server: {
-    allowedHosts: [host],
+    // Allow all hosts: the CLI-injected tunnel hostname and the
+    // SHOPIFY_APP_URL/HOST env vars it depends on have proven unreliable to
+    // sync (see 2026-09-22 session), so don't gate on `host` matching. This
+    // is a local-only dev server reached through Shopify's own tunnel, so
+    // there's no real exposure from allowing any Host header.
+    allowedHosts: true,
     cors: {
       preflightContinue: true,
     },

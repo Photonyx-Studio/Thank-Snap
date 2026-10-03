@@ -36,3 +36,4 @@ extensions/*/shopify.d.ts
 
 # Local build artifact from the Vercel React Router preset
 /.vercel
+.vercel
