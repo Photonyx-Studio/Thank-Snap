@@ -10,30 +10,17 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { authenticate } from "../shopify.server";
-import { STARTER_PLAN } from "../billing.server";
+import { requireActiveSubscription } from "../subscription.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { billing } = await authenticate.admin(request);
+  const { admin, session, redirect } = await authenticate.admin(request);
 
-  // TODO: flip isTest to false once ready to charge real merchants for real.
-  await billing.require({
-    plans: [STARTER_PLAN],
-    isTest: true,
-    onFailure: async () => {
-      try {
-        return await billing.request({ plan: STARTER_PLAN });
-      } catch (error) {
-        // BillingError's `errorData` holds the GraphQL userErrors that
-        // explain *why* Shopify rejected the charge - the bare stack trace
-        // doesn't include it, so log it explicitly to diagnose failures.
-        console.error(
-          "billing.request failed",
-          (error as { errorData?: unknown })?.errorData ?? error,
-        );
-        throw error;
-      }
-    },
+  const subscriptionRedirect = await requireActiveSubscription({
+    admin,
+    session,
+    redirect,
   });
+  if (subscriptionRedirect) return subscriptionRedirect;
 
   // eslint-disable-next-line no-undef
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };

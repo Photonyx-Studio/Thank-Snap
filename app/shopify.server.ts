@@ -7,8 +7,10 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 import { getAppUrl } from "./utils/app-url";
-import { billingConfig } from "./billing.server";
 
+// Billing is handled by Shopify App Pricing (see subscription.server.ts),
+// which is configured in the Partner Dashboard rather than here - this app
+// no longer calls the Billing API, so there's no `billing` config to pass.
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
@@ -21,7 +23,6 @@ const shopify = shopifyApp({
   future: {
     expiringOfflineAccessTokens: true,
   },
-  billing: billingConfig,
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),

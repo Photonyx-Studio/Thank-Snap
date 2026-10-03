@@ -55,8 +55,30 @@ model Shop {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  surveys Survey[]
-  orders  Order[]
+  // Cached Shopify App Pricing subscription state (see subscription.server.ts).
+  // Shopify App Pricing has no webhook for subscription changes, so this is
+  // refreshed lazily against the Partner API on a TTL rather than read live
+  // on every request - the Partner API's rate limit is shared across every
+  // merchant using this app, not per-shop like the Admin API.
+  subscriptionActive           Boolean   @default(false)
+  subscriptionPlanHandle       String?
+  subscriptionTrialEndsAt      DateTime?
+  subscriptionCurrentPeriodEnd DateTime?
+  subscriptionCheckedAt        DateTime?
+
+  // Cached usage against the plan's included-orders cap (see PLAN_TIERS in
+  // billing.server.ts and getUsageStatus in subscription.server.ts). Orders
+  // are counted for the current calendar month (UTC) - refreshed lazily on
+  // a TTL, same reasoning as the subscription fields above: this is read on
+  // checkout's hottest path (api.active-survey), so it can't run a live
+  // COUNT query per request.
+  usagePeriodStart      DateTime?
+  usagePeriodOrderCount Int       @default(0)
+  usageCheckedAt        DateTime?
+
+  surveys             Survey[]
+  orders              Order[]
+  feedbackSubmissions Feedback[]
 }
 
 model Survey {
@@ -98,7 +120,6 @@ model Order {
   shop           Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
   shopifyOrderId String
   orderNumber    String?
-  customerEmail  String?
   totalPrice     Decimal?
   currency       String?
   orderCreatedAt DateTime?
@@ -128,4 +149,22 @@ model Response {
   @@index([surveyId])
   @@index([questionId])
   @@index([submissionId])
+}
+
+enum FeedbackType {
+  BUG
+  FEATURE_REQUEST
+  OTHER
+}
+
+model Feedback {
+  id           String       @id @default(cuid())
+  shopId       String
+  shop         Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  type         FeedbackType
+  message      String
+  contactEmail String?
+  createdAt    DateTime     @default(now())
+
+  @@index([shopId])
 }
