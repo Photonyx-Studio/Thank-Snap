@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
-import { findShopBySessionToken } from "../models/shop.server";
+import { shopDomainFromSessionToken } from "../models/shop.server";
 import db from "../db.server";
 
 // This route only ever receives POST requests from the extension, but a
@@ -36,20 +36,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     );
   }
 
-  const shop = await findShopBySessionToken(sessionToken);
-
-  const survey = shop
-    ? await db.survey.findFirst({ where: { id: surveyId, shopId: shop.id } })
-    : null;
+  // One query (shop -> matching survey -> matching questions) instead of
+  // three sequential round trips - this fires on every survey submission,
+  // so it counts toward Shopify's checkout performance score.
+  const shop = await db.shop.findUnique({
+    where: { shopDomain: shopDomainFromSessionToken(sessionToken) },
+    include: {
+      surveys: {
+        where: { id: surveyId },
+        take: 1,
+        include: {
+          questions: { where: { id: { in: answers.map((a) => a.questionId) } } },
+        },
+      },
+    },
+  });
+  const survey = shop?.surveys[0];
 
   if (!shop || !survey) {
     return cors(Response.json({ error: "Unknown survey" }, { status: 404 }));
   }
 
-  const questions = await db.question.findMany({
-    where: { surveyId: survey.id, id: { in: answers.map((a) => a.questionId) } },
-  });
-  const validQuestionIds = new Set(questions.map((q) => q.id));
+  const validQuestionIds = new Set(survey.questions.map((q) => q.id));
   const validAnswers = answers.filter(
     (a) => validQuestionIds.has(a.questionId) && a.answerValue,
   );
