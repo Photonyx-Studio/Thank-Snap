@@ -30,14 +30,28 @@
   }
 }
 
+/* Plain element selectors (unlike classes) aren't scoped by CSS modules,
+   so this applies globally - but only once this route's stylesheet is
+   actually loaded, i.e. only on this page, never leaking into the
+   Polaris-rendered admin pages which don't import this file. Needed
+   because min-height: 100% on .index below only resolves against an
+   ancestor with an explicit height - without this, a short viewport left
+   body showing through below .index's content-sized height as a plain
+   white strip, invisible in light mode (white-on-white) but glaring in
+   dark mode. */
+body {
+  margin: 0;
+  background: var(--paper);
+}
+
 .index {
-  align-items: center;
+  align-items: flex-start;
   display: flex;
   justify-content: center;
-  min-height: 100%;
+  min-height: 100vh;
   width: 100%;
   text-align: center;
-  padding: 2.5rem 1rem;
+  padding: 3.5rem 1rem 2.5rem;
   box-sizing: border-box;
   background: var(--paper);
   color: var(--ink);
