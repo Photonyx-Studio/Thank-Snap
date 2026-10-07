@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { QuestionEditor } from "./QuestionEditor";
 import type { QuestionDraft } from "./types";
 
@@ -24,6 +25,20 @@ export function QuestionsSection({
   onUpdateOption,
   onRemoveOption,
 }: QuestionsSectionProps) {
+  // Collapsed by default once a question has real content, so a survey with
+  // several configured questions reads as a scannable list instead of a wall
+  // of open forms - explicitly toggled state (after the merchant opens or
+  // closes one) always wins over that default.
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
+
+  function isExpanded(question: QuestionDraft): boolean {
+    return toggled[question.key] ?? question.label.trim() === "";
+  }
+
+  function toggleExpanded(question: QuestionDraft) {
+    setToggled((prev) => ({ ...prev, [question.key]: !isExpanded(question) }));
+  }
+
   return (
     <s-section heading="Questions">
       <s-stack direction="block" gap="base">
@@ -34,6 +49,8 @@ export function QuestionsSection({
             index={qIndex}
             isFirst={qIndex === 0}
             isLast={qIndex === questions.length - 1}
+            expanded={isExpanded(question)}
+            onToggleExpanded={() => toggleExpanded(question)}
             onChange={(patch) => onChange(question.key, patch)}
             onRemove={() => onRemove(question.key)}
             onMoveUp={() => onMoveUp(question.key)}
@@ -45,7 +62,7 @@ export function QuestionsSection({
             onRemoveOption={(oIndex) => onRemoveOption(question.key, oIndex)}
           />
         ))}
-        <s-button variant="secondary" onClick={onAdd}>
+        <s-button variant="secondary" icon="plus" onClick={onAdd}>
           Add question
         </s-button>
       </s-stack>

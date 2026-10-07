@@ -7,6 +7,8 @@ interface QuestionEditorProps {
   index: number;
   isFirst: boolean;
   isLast: boolean;
+  expanded: boolean;
+  onToggleExpanded: () => void;
   onChange: (patch: Partial<QuestionDraft>) => void;
   onRemove: () => void;
   onMoveUp: () => void;
@@ -21,6 +23,8 @@ export function QuestionEditor({
   index,
   isFirst,
   isLast,
+  expanded,
+  onToggleExpanded,
   onChange,
   onRemove,
   onMoveUp,
@@ -35,79 +39,100 @@ export function QuestionEditor({
   return (
     <s-box padding="base" border="base" borderRadius="base">
       <s-stack direction="block" gap="base">
-        <s-stack
-          direction="inline"
-          gap="base"
-          alignItems="center"
-          justifyContent="space-between"
-        >
-          <s-text type="strong">Question {index + 1}</s-text>
-          <s-stack direction="inline" gap="base" alignItems="center">
+        <s-grid gridTemplateColumns="auto 1fr auto" gap="base" alignItems="center">
+          <s-button
+            accessibilityLabel={expanded ? "Collapse question" : "Expand question"}
+            variant="tertiary"
+            icon={expanded ? "chevron-up" : "chevron-down"}
+            onClick={onToggleExpanded}
+          ></s-button>
+
+          <s-stack direction="block" gap="small-300">
+            <s-text type="strong">
+              {question.label.trim() || `Question ${index + 1}`}
+            </s-text>
+            {!expanded && (
+              <s-stack direction="inline" gap="small-300" alignItems="center">
+                <s-badge tone="neutral">
+                  {QUESTION_TYPE_LABELS[question.type]}
+                </s-badge>
+                {question.required && <s-badge tone="info">Required</s-badge>}
+              </s-stack>
+            )}
+          </s-stack>
+
+          <s-stack direction="inline" gap="small-300" alignItems="center">
             <s-button
               variant="tertiary"
               accessibilityLabel="Move question up"
+              icon="chevron-up"
               disabled={isFirst}
               onClick={onMoveUp}
-            >
-              ↑
-            </s-button>
+            ></s-button>
             <s-button
               variant="tertiary"
               accessibilityLabel="Move question down"
+              icon="chevron-down"
               disabled={isLast}
               onClick={onMoveDown}
-            >
-              ↓
-            </s-button>
-            <s-button variant="tertiary" tone="critical" onClick={onRemove}>
-              Remove
-            </s-button>
+            ></s-button>
+            <s-button
+              variant="tertiary"
+              tone="critical"
+              accessibilityLabel="Remove question"
+              icon="delete"
+              onClick={onRemove}
+            ></s-button>
           </s-stack>
-        </s-stack>
+        </s-grid>
 
-        <s-select
-          label="Question type"
-          value={question.type}
-          onChange={(e) =>
-            onChange({ type: e.currentTarget.value as QuestionTypeValue })
-          }
-        >
-          {Object.entries(QUESTION_TYPE_LABELS).map(([value, label]) => (
-            <s-option key={value} value={value}>
-              {label}
-            </s-option>
-          ))}
-        </s-select>
-
-        <s-text-field
-          label="Question text"
-          value={question.label}
-          onChange={(e) => onChange({ label: e.currentTarget.value ?? "" })}
-        ></s-text-field>
-
-        <s-checkbox
-          label="Required"
-          checked={question.required}
-          onChange={() => onChange({ required: !question.required })}
-        ></s-checkbox>
-
-        {showOptions && (
+        <s-box display={expanded ? "auto" : "none"}>
           <s-stack direction="block" gap="base">
-            <s-text>Answer options</s-text>
-            {question.options.map((option, oIndex) => (
-              <OptionRow
-                key={oIndex}
-                label={`Option ${oIndex + 1}`}
-                value={option}
-                onChange={(value) => onUpdateOption(oIndex, value)}
-                onRemove={() => onRemoveOption(oIndex)}
-              />
-            ))}
-            <s-button variant="secondary" onClick={onAddOption}>
-              Add option
-            </s-button>
+            <s-select
+              label="Question type"
+              value={question.type}
+              onChange={(e) =>
+                onChange({ type: e.currentTarget.value as QuestionTypeValue })
+              }
+            >
+              {Object.entries(QUESTION_TYPE_LABELS).map(([value, label]) => (
+                <s-option key={value} value={value}>
+                  {label}
+                </s-option>
+              ))}
+            </s-select>
+
+            <s-text-field
+              label="Question text"
+              value={question.label}
+              onChange={(e) => onChange({ label: e.currentTarget.value ?? "" })}
+            ></s-text-field>
+
+            <s-checkbox
+              label="Required"
+              checked={question.required}
+              onChange={() => onChange({ required: !question.required })}
+            ></s-checkbox>
+
+            {showOptions && (
+              <s-stack direction="block" gap="base">
+                <s-text>Answer options</s-text>
+                {question.options.map((option, oIndex) => (
+                  <OptionRow
+                    key={oIndex}
+                    label={`Option ${oIndex + 1}`}
+                    value={option}
+                    onChange={(value) => onUpdateOption(oIndex, value)}
+                    onRemove={() => onRemoveOption(oIndex)}
+                  />
+                ))}
+                <s-button variant="secondary" onClick={onAddOption}>
+                  Add option
+                </s-button>
+              </s-stack>
+            )}
           </s-stack>
-        )}
+        </s-box>
       </s-stack>
     </s-box>
   );
