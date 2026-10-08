@@ -96,35 +96,46 @@ export default function SurveyPage() {
       <form data-save-bar data-discard-confirmation onSubmit={handleFormSubmit} onReset={builder.reset}>
         <input ref={signatureInputRef} type="hidden" name="surveyPayloadSignature" defaultValue="" />
 
-        <TemplateGallery
-          templates={SURVEY_TEMPLATES}
-          isTemplateSelected={(template) =>
-            builder.questions.length === 1 &&
-            builder.questions[0].label === template.questionLabel
-          }
-          onApply={handleApplyTemplate}
-        />
+        {/* Explicit gap instead of relying on s-section's own spacing -
+            adjacent sections only get a real gap between them when the
+            section before them has a heading prop AND isn't otherwise
+            grouped with it; TemplateGallery builds its own custom heading
+            (to fit the Browse toggle next to it) which doesn't trigger
+            that automatic spacing, so without this it visually merges into
+            the section below it. See Shopify's own migration guidance:
+            "Vertical section spacing: use s-stack direction=block instead
+            of relying on Layout spacing." */}
+        <s-stack direction="block" gap="base">
+          <TemplateGallery
+            templates={SURVEY_TEMPLATES}
+            isTemplateSelected={(template) =>
+              builder.questions.length === 1 &&
+              builder.questions[0].label === template.questionLabel
+            }
+            onApply={handleApplyTemplate}
+          />
 
-        <SurveyDetailsSection
-          active={builder.active}
-          onToggleActive={builder.toggleActive}
-          title={builder.title}
-          onTitleChange={builder.setTitle}
-          description={builder.description}
-          onDescriptionChange={builder.setDescription}
-        />
+          <SurveyDetailsSection
+            active={builder.active}
+            onToggleActive={builder.toggleActive}
+            title={builder.title}
+            onTitleChange={builder.setTitle}
+            description={builder.description}
+            onDescriptionChange={builder.setDescription}
+          />
 
-        <QuestionsSection
-          questions={builder.questions}
-          onAdd={builder.addQuestion}
-          onChange={builder.updateQuestion}
-          onRemove={builder.removeQuestion}
-          onMoveUp={(key) => builder.moveQuestion(key, -1)}
-          onMoveDown={(key) => builder.moveQuestion(key, 1)}
-          onAddOption={builder.addOption}
-          onUpdateOption={builder.updateOption}
-          onRemoveOption={builder.removeOption}
-        />
+          <QuestionsSection
+            questions={builder.questions}
+            onAdd={builder.addQuestion}
+            onChange={builder.updateQuestion}
+            onRemove={builder.removeQuestion}
+            onMoveUp={(key) => builder.moveQuestion(key, -1)}
+            onMoveDown={(key) => builder.moveQuestion(key, 1)}
+            onAddOption={builder.addOption}
+            onUpdateOption={builder.updateOption}
+            onRemoveOption={builder.removeOption}
+          />
+        </s-stack>
       </form>
 
       <AboutSurveyAside />
