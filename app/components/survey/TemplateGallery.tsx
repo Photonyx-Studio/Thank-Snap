@@ -10,7 +10,18 @@ interface TemplateGalleryProps {
 
 /** Collapsed by default - most merchants land here to edit an already-
  * configured survey, not to browse templates, so this stays out of the way
- * until asked for instead of being the first wall of cards on the page. */
+ * until asked for instead of being the first wall of cards on the page.
+ *
+ * Deliberately an s-box, not an s-section: s-section only renders its own
+ * card/spacing styling as a direct child of s-page - nested one level
+ * deeper inside this page's <form> (needed for the native save-bar/FormData
+ * flow), every s-section in the form collapses into one continuous card
+ * with no gap between them, regardless of heading props or an ancestor
+ * s-stack's gap. Confirmed directly against the real Polaris web component
+ * (loaded via its CDN script, outside the Shopify admin iframe) with both
+ * failed fixes and this one, isolated from the rest of the app. s-box has
+ * no such parent-dependent behavior, so every section in this form uses it
+ * instead - see SurveyDetailsSection.tsx and QuestionsSection.tsx. */
 export function TemplateGallery({
   templates,
   isTemplateSelected,
@@ -19,7 +30,7 @@ export function TemplateGallery({
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <s-section>
+    <s-box background="base" border="base" borderRadius="base" padding="base">
       <s-grid gridTemplateColumns="1fr auto" gap="base" alignItems="center">
         <s-box>
           <s-heading>Start from a template</s-heading>
@@ -51,6 +62,6 @@ export function TemplateGallery({
           </s-grid>
         </s-query-container>
       </s-box>
-    </s-section>
+    </s-box>
   );
 }
