@@ -11,3 +11,17 @@ jobs:
     steps:
       - name: Ping health endpoint
         run: curl -fsS --max-time 10 https://app.thanksnap.com/api/health
+
+      # Each API route builds as its own separate Vercel serverless
+      # function, so keeping /api/health warm does nothing for this one -
+      # it's a different lambda with its own cold start. This is the route
+      # that actually gates whether the Thank you page survey renders at
+      # all, so it's the one worth keeping warm. Hitting it without a real
+      # checkout session token won't return 200 (expect a 4xx) - that's
+      # fine, the request still runs the route's module imports and Prisma
+      # Client init on the way there, which is the slow part on a cold
+      # instance. Not using `-f` here since a non-2xx is expected and
+      # shouldn't fail the job - only a connection-level failure
+      # (unreachable server) should.
+      - name: Warm the active-survey endpoint (a non-2xx response here is expected)
+        run: curl -sS --max-time 10 -o /dev/null https://app.thanksnap.com/api/active-survey
