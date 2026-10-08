@@ -1,48 +1,30 @@
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
-import { useState } from "react";
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { Form, useActionData, useLoaderData } from "react-router";
+import type { LoaderFunctionArgs } from "react-router";
 
 import { login } from "../../shopify.server";
-import { loginErrorMessage } from "./error.server";
 
+// `login()` only reaches this component when the request carries no `shop`
+// query param - i.e. someone navigated here directly rather than arriving
+// via a Shopify-owned surface (App Store listing, admin) that already
+// supplies `shop`. Per App Store requirement 2.3.1, installs/logins must be
+// initiated from Shopify, so this page must not collect a manually typed
+// shop domain - it only points merchants back to their admin.
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const errors = loginErrorMessage(await login(request));
+  await login(request);
 
-  return { errors };
-};
-
-export const action = async ({ request }: ActionFunctionArgs) => {
-  const errors = loginErrorMessage(await login(request));
-
-  return {
-    errors,
-  };
+  return null;
 };
 
 export default function Auth() {
-  const loaderData = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
-  const [shop, setShop] = useState("");
-  const { errors } = actionData || loaderData;
-
   return (
     <AppProvider embedded={false}>
       <s-page>
-        <Form method="post">
         <s-section heading="Log in">
-          <s-text-field
-            name="shop"
-            label="Shop domain"
-            details="example.myshopify.com"
-            value={shop}
-            onChange={(e) => setShop(e.currentTarget.value ?? "")}
-            autocomplete="on"
-            error={errors.shop}
-          ></s-text-field>
-          <s-button type="submit">Log in</s-button>
+          <s-paragraph>
+            Open thank-snap from the Apps section of your Shopify admin to
+            log in.
+          </s-paragraph>
         </s-section>
-        </Form>
       </s-page>
     </AppProvider>
   );

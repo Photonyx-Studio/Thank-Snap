@@ -1,7 +1,5 @@
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
-import { redirect, Form, useLoaderData } from "react-router";
-
-import { login } from "../../shopify.server";
+import { redirect } from "react-router";
 
 import styles from "./styles.module.css";
 
@@ -29,12 +27,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
 
-  return { showForm: Boolean(login) };
+  return null;
 };
 
 export default function App() {
-  const { showForm } = useLoaderData<typeof loader>();
-
   return (
     <div className={styles.index}>
       <div className={styles.content}>
@@ -62,31 +58,17 @@ export default function App() {
           A post-purchase survey for your Thank you page — find out how
           customers found your store, right after they check out.
         </p>
-        {showForm && (
-          <Form className={styles.form} method="post" action="/auth/login">
-            <div className={styles.field}>
-              <label className={styles.label} htmlFor="shop">
-                Shop domain
-              </label>
-              {/* Input and button share one row so the button aligns with
-                  the input itself, not with the hint caption below it. */}
-              <div className={styles.controlRow}>
-                <input
-                  className={styles.input}
-                  id="shop"
-                  type="text"
-                  name="shop"
-                  autoComplete="off"
-                  placeholder="my-shop-domain.myshopify.com"
-                />
-                <button className={styles.button} type="submit">
-                  Log in
-                </button>
-              </div>
-              <span className={styles.hint}>e.g: my-shop-domain.myshopify.com</span>
-            </div>
-          </Form>
-        )}
+        {/* No manual shop-domain entry here - installs and logins must be
+            initiated from a Shopify-owned surface (the App Store listing or
+            the merchant's own admin), not typed in on this page. */}
+        <div className={styles.form}>
+          <div className={styles.field}>
+            <span className={styles.label}>Already have thank-snap installed?</span>
+            <span className={styles.hint}>
+              Open it from the Apps section of your Shopify admin.
+            </span>
+          </div>
+        </div>
         <ul className={styles.list}>
           <li>
             <strong>Customizable survey</strong>. Build your own questions —
