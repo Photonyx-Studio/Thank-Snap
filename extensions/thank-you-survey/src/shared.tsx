@@ -259,3 +259,24 @@ export function Survey({ title, description, onSubmit, children, loading, disabl
     </s-box>
   );
 }
+
+/**
+ * Stand-in for the survey card while its config is still loading (session
+ * token exchange + the active-survey API call, including a cold start on
+ * a store's very first order). Same outer box as the real card, so there's
+ * no layout shift when the real content replaces it - content lengths here
+ * are just representative of a typical title/description/question so the
+ * skeleton's sizing is a reasonable approximation (s-skeleton-paragraph
+ * sizes itself from its `content`, which is hidden, not displayed).
+ */
+export function SurveySkeleton() {
+  return (
+    <s-box border="base" padding="base" borderRadius="base">
+      <s-stack gap="base">
+        <s-skeleton-paragraph content="Quick feedback"></s-skeleton-paragraph>
+        <s-skeleton-paragraph content="We'd love your feedback after your purchase."></s-skeleton-paragraph>
+        <s-skeleton-paragraph content="How did you hear about us?"></s-skeleton-paragraph>
+      </s-stack>
+    </s-box>
+  );
+}

@@ -4,6 +4,7 @@ import {
   APP_URL,
   QuestionField,
   Survey,
+  SurveySkeleton,
   fetchSurveyConfig,
   recordSurveyView,
   submitSurveyResponse,
@@ -58,14 +59,27 @@ function Attribution() {
     );
   }
 
-  // Hides the survey while loading, on fetch failure, when the merchant has
-  // turned it off, or once the buyer has already submitted it.
-  if (
-    configError ||
-    !config?.active ||
-    surveySubmitted.loading ||
-    surveySubmitted.data === true
-  ) {
+  // Fetch failure hides immediately, before either loading state below -
+  // there's nothing to wait for once we know the request itself failed.
+  if (configError) {
+    return null;
+  }
+
+  // Neither source has resolved yet - show a skeleton instead of nothing,
+  // since this covers a real network round trip (session token exchange +
+  // the active-survey API call), not an instant check. Written as its own
+  // simple `config === null` check (rather than folded into a compound
+  // condition) so TypeScript can narrow `config` to non-null below -
+  // SurveyConfig is a discriminated union (`{ active: false }` has none of
+  // the fields the rest of this component reads).
+  if (config === null || surveySubmitted.loading) {
+    return <SurveySkeleton />;
+  }
+
+  // Both resolved - hide for good when the merchant has turned the survey
+  // off (or the shop is over its plan's order cap), or once the buyer has
+  // already submitted it.
+  if (!config.active || surveySubmitted.data === true) {
     return null;
   }
 
