@@ -14,6 +14,9 @@ interface QuestionsSectionProps {
   onRemoveOption: (key: string, index: number) => void;
 }
 
+/** s-box, not s-section - see the comment in TemplateGallery.tsx: s-section
+ * only gets its card/spacing styling as a direct child of s-page, not
+ * nested inside this page's <form>. */
 export function QuestionsSection({
   questions,
   onAdd,
@@ -40,8 +43,9 @@ export function QuestionsSection({
   }
 
   return (
-    <s-section heading="Questions">
+    <s-box border="base" borderRadius="base" padding="base">
       <s-stack direction="block" gap="base">
+        <s-heading>Questions</s-heading>
         {questions.map((question, qIndex) => (
           <QuestionEditor
             key={question.key}
@@ -66,6 +70,6 @@ export function QuestionsSection({
           Add question
         </s-button>
       </s-stack>
-    </s-section>
+    </s-box>
   );
 }
