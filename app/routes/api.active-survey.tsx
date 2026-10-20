@@ -29,11 +29,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
 
   // Stop showing the survey once the shop is past its plan's included
-  // monthly orders - an unrecognized/missing plan handle fails open (see
+  // monthly orders, on plans that hard-cap (plans with an overage price
+  // keep showing it and bill per extra order - see usage-billing.server.ts).
+  // An unrecognized/missing plan handle fails open (see
   // getUsageStatusFromShop), so this only ever blocks a shop we're
   // confident has actually hit its cap.
   const usage = await getUsageStatusFromShop(shop);
-  if (usage.isOverCap) {
+  if (usage.surveyPaused) {
     return cors(Response.json({ active: false }));
   }
 

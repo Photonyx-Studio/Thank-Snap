@@ -17,10 +17,13 @@ import { useEagerPreload } from "../utils/usePrefetchOnHover";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session, redirect } = await authenticate.admin(request);
 
+  // Shopify appends plan_handle to a plan's welcome link after the merchant
+  // approves it - see refreshSubscription.
   const subscriptionRedirect = await requireActiveSubscription({
     admin,
     session,
     redirect,
+    planHandle: new URL(request.url).searchParams.get("plan_handle"),
   });
   if (subscriptionRedirect) return subscriptionRedirect;
 
@@ -54,7 +57,9 @@ export default function App() {
   useEagerPreload("/app");
   useEagerPreload("/app/survey");
   useEagerPreload("/app/responses");
-  useEagerPreload("/app/billing");
+  // Not /app/billing: its loader always queries the Partner API live (see
+  // app.billing.tsx), and that rate limit is shared across every merchant -
+  // preloading it would spend a call on every app open.
 
   return (
     <AppProvider embedded apiKey={apiKey}>

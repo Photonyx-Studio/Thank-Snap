@@ -3,7 +3,11 @@ import { useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import db from "../db.server";
-import { getPlanSelectionUrl, getUsageStatus } from "../subscription.server";
+import {
+  getPlanSelectionUrl,
+  getUsageStatus,
+  refreshSubscription,
+} from "../subscription.server";
 import { findPlanTier, PLAN_FEATURES, PLAN_TIERS } from "../billing.server";
 
 // The merchant-facing /app/billing page: current plan + this month's usage
@@ -11,8 +15,21 @@ import { findPlanTier, PLAN_FEATURES, PLAN_TIERS } from "../billing.server";
 // feature list (PLAN_FEATURES) every tier includes. Plan changes themselves
 // happen on Shopify's own hosted page (manageUrl); this route only reads
 // and displays state.
+//
+// Point each plan's welcome link in the Partner Dashboard here
+// (/app/billing): Shopify appends plan_handle after the merchant approves
+// a plan, which this page uses to confirm the change.
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
+
+  // Always read the live subscription here, never the cache: this is where
+  // a merchant checks that a plan change took effect, including when they
+  // come back from Shopify's plan page some other way than the welcome
+  // link. It's a rarely-visited page (and deliberately not eagerly
+  // preloaded in app.tsx), so the Partner API's shared rate limit isn't a
+  // concern.
+  const planHandle = new URL(request.url).searchParams.get("plan_handle");
+  await refreshSubscription({ admin, session, planHandle, force: true });
 
   const [shop, manageUrl, usage] = await Promise.all([
     db.shop.findUnique({ where: { shopDomain: session.shop } }),
@@ -24,6 +41,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     shop?.subscriptionTrialEndsAt && shop.subscriptionTrialEndsAt.getTime() > Date.now(),
   );
   const currentTier = findPlanTier(shop?.subscriptionPlanHandle);
+  const pendingTier = findPlanTier(shop?.subscriptionPendingPlanHandle);
 
   return {
     tiers: PLAN_TIERS,
@@ -38,10 +56,28 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           isInTrial,
           trialEndsOn: shop.subscriptionTrialEndsAt?.toISOString() ?? null,
           currentPeriodEnd: shop.subscriptionCurrentPeriodEnd?.toISOString() ?? null,
+          cancelAtEndOfCycle: shop.subscriptionCancelAtEndOfCycle,
+          pendingPlanName: shop.subscriptionPendingPlanHandle
+            ? (pendingTier?.name ?? shop.subscriptionPendingPlanHandle)
+            : null,
         }
       : null,
+    // Only confirm the plan Shopify redirected back with if it's really
+    // the one now active - never claim a change the Partner API doesn't show.
+    justSubscribed:
+      Boolean(planHandle) &&
+      shop?.subscriptionActive === true &&
+      shop.subscriptionPlanHandle === planHandle,
   };
 };
+
+function formatMoney(amount: number) {
+  return amount.toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+  });
+}
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -52,11 +88,20 @@ function formatDate(iso: string) {
 }
 
 export default function BillingPage() {
-  const { tiers, features, subscription, manageUrl, usage } =
+  const { tiers, features, subscription, manageUrl, usage, justSubscribed } =
     useLoaderData<typeof loader>();
 
   return (
     <s-page heading="Billing">
+      {justSubscribed && subscription?.planName ? (
+        <s-banner heading={`You're on the ${subscription.planName} plan`} tone="success">
+          <s-paragraph>
+            Thanks for subscribing - your new plan and order limit are
+            active now.
+          </s-paragraph>
+        </s-banner>
+      ) : null}
+
       <s-section heading="Current plan">
         <s-stack direction="inline" gap="base" alignItems="center">
           <s-badge tone={subscription ? "success" : "neutral"}>
@@ -72,7 +117,13 @@ export default function BillingPage() {
           </s-heading>
         </s-stack>
 
-        {subscription?.isInTrial && subscription.trialEndsOn ? (
+        {subscription?.cancelAtEndOfCycle && subscription.currentPeriodEnd ? (
+          <s-paragraph>
+            Your plan is cancelled and ends on{" "}
+            {formatDate(subscription.currentPeriodEnd)}. You can keep using
+            it until then, or choose a plan again to stay subscribed.
+          </s-paragraph>
+        ) : subscription?.isInTrial && subscription.trialEndsOn ? (
           <s-paragraph>
             You&apos;re in your free trial - it ends on{" "}
             {formatDate(subscription.trialEndsOn)}. You won&apos;t be
@@ -88,14 +139,32 @@ export default function BillingPage() {
           </s-paragraph>
         )}
 
-        {usage.orderCap !== null ? (
+        {subscription?.pendingPlanName && !subscription.cancelAtEndOfCycle ? (
+          <s-paragraph>
+            Your plan changes to {subscription.pendingPlanName}
+            {subscription.currentPeriodEnd
+              ? ` on ${formatDate(subscription.currentPeriodEnd)}`
+              : " at the end of this billing cycle"}
+            .
+          </s-paragraph>
+        ) : null}
+
+        {usage.orderCap === null ? null : usage.overagePrice !== null ? (
+          <s-text tone={usage.isOverCap ? "caution" : "neutral"}>
+            {Math.min(usage.currentCount, usage.orderCap).toLocaleString()} /{" "}
+            {usage.orderCap.toLocaleString()} included orders used this month
+            {usage.overageCount > 0
+              ? ` - plus ${usage.overageCount.toLocaleString()} extra order${usage.overageCount === 1 ? "" : "s"} at ${formatMoney(usage.overagePrice)} each (about ${formatMoney(usage.overageCount * usage.overagePrice)}), added to your Shopify bill.`
+              : ""}
+          </s-text>
+        ) : (
           <s-text tone={usage.isOverCap ? "critical" : "neutral"}>
             {usage.currentCount} / {usage.orderCap} orders used this month
             {usage.isOverCap
               ? " - the survey has stopped showing on your Thank you page until you upgrade or next month starts."
               : ""}
           </s-text>
-        ) : null}
+        )}
 
         <s-button href={manageUrl} target="_top" variant="secondary">
           {subscription ? "Manage plan" : "Choose a plan"}
@@ -125,8 +194,13 @@ export default function BillingPage() {
                   {tier.price.amount === 0 ? "Free" : `$${tier.price.amount} / month`}
                 </s-text>
                 <s-text tone="neutral">
-                  Up to {tier.orderCap.toLocaleString()} orders/month
+                  {tier.orderCap.toLocaleString()} orders/month included
                 </s-text>
+                {tier.overagePrice ? (
+                  <s-text tone="neutral">
+                    then {formatMoney(tier.overagePrice.amount)} per extra order
+                  </s-text>
+                ) : null}
                 {tier.handle === subscription?.planHandle ? (
                   <s-badge tone="success">Current plan</s-badge>
                 ) : null}
@@ -150,10 +224,11 @@ export default function BillingPage() {
           any time.
         </s-paragraph>
         <s-paragraph>
-          Order usage resets at the start of each calendar month. If you go
-          over your plan&apos;s included orders, the survey stops appearing
-          on your Thank you page until you upgrade or the next month starts
-          - nothing else in the app is affected.
+          Included orders reset at the start of each calendar month. If you
+          go over them, the survey keeps showing on your Thank you page and
+          each extra order is charged at your plan&apos;s per-order rate on
+          your regular Shopify bill. Upgrading lowers what you pay if
+          you&apos;re regularly over.
         </s-paragraph>
       </s-section>
     </s-page>
