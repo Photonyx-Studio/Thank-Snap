@@ -11,7 +11,20 @@ export interface PlanTier {
   price: { amount: number; currencyCode: string };
   /** Orders-with-survey-shown included per calendar month. */
   orderCap: number;
+  /**
+   * Per-order charge once orderCap is used up, billed through the
+   * OVERAGE_METER_HANDLE usage meter (see usage-billing.server.ts). Must
+   * match that meter's fixed price on this plan in the Partner Dashboard.
+   * Omit it and the plan hard-caps instead: the survey stops showing at
+   * orderCap until next month.
+   */
+  overagePrice?: { amount: number; currencyCode: string };
 }
+
+// The usage meter's handle - must match the meter configured on every plan
+// above that has an overagePrice, in the Partner Dashboard's pricing
+// settings (fixed pricing, one unit per order over the plan's cap).
+export const OVERAGE_METER_HANDLE = "extra_order";
 
 export const PLAN_TIERS: PlanTier[] = [
   {
@@ -19,18 +32,21 @@ export const PLAN_TIERS: PlanTier[] = [
     name: "Seed",
     price: { amount: 0, currencyCode: "USD" },
     orderCap: 100,
+    overagePrice: { amount: 0.02, currencyCode: "USD" },
   },
   {
     handle: "tier-2",
     name: "Starter",
     price: { amount: 19, currencyCode: "USD" },
     orderCap: 1000,
+    overagePrice: { amount: 0.02, currencyCode: "USD" },
   },
   {
     handle: "tier-3",
     name: "Growth",
     price: { amount: 49, currencyCode: "USD" },
     orderCap: 5000,
+    overagePrice: { amount: 0.02, currencyCode: "USD" },
   },
 ];
 
@@ -44,6 +60,21 @@ export const PLAN_FEATURES = [
   "CSV export of every response, one row per order",
   "Response-rate tracking widget on the app home page",
 ];
+
+/**
+ * The plan's own item in a subscription's items - Shopify App Pricing lists
+ * usage meters as items too (by their meter handle), so items[0] isn't
+ * guaranteed to be the plan once a plan has a meter.
+ */
+export function findPlanItemHandle(
+  items: { handle: string | null }[] | null | undefined,
+): string | null {
+  if (!items?.length) return null;
+  const planItem =
+    items.find((item) => findPlanTier(item.handle) !== null) ??
+    items.find((item) => item.handle !== OVERAGE_METER_HANDLE);
+  return planItem?.handle ?? null;
+}
 
 export function findPlanTier(handle: string | null | undefined): PlanTier | null {
   if (!handle) return null;

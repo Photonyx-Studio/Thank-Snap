@@ -25,6 +25,19 @@ const shopify = shopifyApp({
   future: {
     expiringOfflineAccessTokens: true,
   },
+  hooks: {
+    // Runs when a new session is created - on install/reinstall among
+    // others. Expires the cached subscription so the next request
+    // re-checks the Partner API and, after a reinstall, sends the merchant
+    // back through plan approval. A backstop for the app/uninstalled
+    // webhook (which clears it too), since webhook delivery can lag.
+    afterAuth: async ({ session }) => {
+      await prisma.shop.updateMany({
+        where: { shopDomain: session.shop },
+        data: { subscriptionCheckedAt: null },
+      });
+    },
+  },
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),

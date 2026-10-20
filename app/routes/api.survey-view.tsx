@@ -2,6 +2,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { shopDomainFromSessionToken } from "../models/shop.server";
 import db from "../db.server";
+import { billOverageIfNeeded } from "../usage-billing.server";
 
 // This route only ever receives POST requests from the extension, but a
 // browser's CORS preflight for that POST arrives as an OPTIONS request —
@@ -50,7 +51,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return cors(Response.json({ error: "Unknown survey" }, { status: 404 }));
   }
 
-  await db.order.upsert({
+  const order = await db.order.upsert({
     where: { shopId_shopifyOrderId: { shopId: shop.id, shopifyOrderId: orderId } },
     create: {
       shopId: shop.id,
@@ -59,6 +60,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     },
     update: {},
   });
+
+  // Past the plan's included orders, each shown survey is a usage charge.
+  // Awaited (not fire-and-forget) so a serverless runtime can't freeze it
+  // mid-request - the buyer never waits on this response anyway.
+  await billOverageIfNeeded(shop, order);
 
   return cors(new Response(null, { status: 204 }));
 };

@@ -60,11 +60,21 @@ model Shop {
   // refreshed lazily against the Partner API on a TTL rather than read live
   // on every request - the Partner API's rate limit is shared across every
   // merchant using this app, not per-shop like the Admin API.
-  subscriptionActive           Boolean   @default(false)
-  subscriptionPlanHandle       String?
-  subscriptionTrialEndsAt      DateTime?
-  subscriptionCurrentPeriodEnd DateTime?
-  subscriptionCheckedAt        DateTime?
+  subscriptionActive             Boolean   @default(false)
+  subscriptionPlanHandle         String?
+  subscriptionTrialEndsAt        DateTime?
+  subscriptionCurrentPeriodEnd   DateTime?
+  subscriptionCheckedAt          DateTime?
+  // Set when the merchant has cancelled - the plan stays active until
+  // subscriptionCurrentPeriodEnd, then ends.
+  subscriptionCancelAtEndOfCycle Boolean   @default(false)
+  // A plan change (typically a downgrade) scheduled for the end of the
+  // current billing cycle, or null if none is pending.
+  subscriptionPendingPlanHandle  String?
+
+  // gid://shopify/Shop/<id> - the App Events API identifies shops by this,
+  // and checkout requests (where usage is billed) only carry the domain.
+  shopGid String?
 
   // Cached usage against the plan's included-orders cap (see PLAN_TIERS in
   // billing.server.ts and getUsageStatus in subscription.server.ts). Orders
@@ -115,16 +125,20 @@ model Question {
 }
 
 model Order {
-  id             String    @id @default(cuid())
-  shopId         String
-  shop           Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  shopifyOrderId String
-  orderNumber    String?
-  totalPrice     Decimal?
-  currency       String?
-  orderCreatedAt DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  shopId          String
+  shop            Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shopifyOrderId  String
+  orderNumber     String?
+  totalPrice      Decimal?
+  currency        String?
+  orderCreatedAt  DateTime?
+  // When this order was reported to Shopify as a usage charge for going
+  // over the plan's included orders (see usage-billing.server.ts), so a
+  // reloaded Thank you page doesn't re-send it. Null = not billed.
+  overageBilledAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   responses Response[]
 

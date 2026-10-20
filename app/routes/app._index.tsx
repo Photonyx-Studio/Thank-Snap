@@ -4,13 +4,22 @@ import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { getOrCreateSurvey } from "../models/survey.server";
 import { getResponseStats } from "../models/stats.server";
-import { getUsageStatus } from "../subscription.server";
+import { getUsageStatus, refreshSubscription } from "../subscription.server";
 
 // Nudge merchants toward upgrading before they actually hit the wall.
 const USAGE_WARNING_THRESHOLD = 0.8;
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
+
+  // Back from Shopify's plan page via a welcome link pointing here: this
+  // loader runs in parallel with app.tsx's, so pick up the new plan itself
+  // before reading usage, rather than showing the old plan's order cap.
+  const planHandle = new URL(request.url).searchParams.get("plan_handle");
+  if (planHandle) {
+    await refreshSubscription({ admin, session, planHandle });
+  }
+
   const [survey, stats, usage] = await Promise.all([
     getOrCreateSurvey(session.shop),
     getResponseStats(session.shop),
@@ -46,10 +55,12 @@ export default function Index() {
         </s-banner>
       ) : null}
 
-      {/* Two-stage warning: a critical banner once the survey has actually
-          stopped (isOverCap), a softer one as it approaches the limit
-          (USAGE_WARNING_THRESHOLD) so merchants can upgrade before it does. */}
-      {usage.isOverCap ? (
+      {/* On plans that hard-cap (no overagePrice): a critical banner once
+          the survey has actually stopped (surveyPaused), a softer one as it
+          approaches the limit (USAGE_WARNING_THRESHOLD). On plans with
+          overage billing the survey never stops, so the banners instead
+          say that extra orders are being charged. */}
+      {usage.surveyPaused ? (
         <s-banner heading="You've reached your plan's order limit" tone="critical">
           <s-paragraph>
             {usage.currentCount} / {usage.orderCap} orders this month - the
@@ -58,12 +69,24 @@ export default function Index() {
           </s-paragraph>
           <s-link href="/app/billing">Upgrade your plan</s-link>
         </s-banner>
+      ) : usage.isOverCap && usage.overagePrice !== null ? (
+        <s-banner heading="You're past your plan's included orders" tone="warning">
+          <s-paragraph>
+            {usage.overageCount.toLocaleString()} extra order
+            {usage.overageCount === 1 ? "" : "s"} this month, each charged
+            at ${usage.overagePrice.toFixed(2)} on your Shopify bill. The
+            survey keeps showing as normal. If you&apos;re regularly over,
+            a bigger plan costs less.
+          </s-paragraph>
+          <s-link href="/app/billing">View plans</s-link>
+        </s-banner>
       ) : usage.orderCap !== null && usageRatio >= USAGE_WARNING_THRESHOLD ? (
         <s-banner heading="Approaching your plan's order limit" tone="warning">
           <s-paragraph>
             {usage.currentCount} / {usage.orderCap} orders this month.
-            Upgrade before you hit the limit to keep the survey running
-            without interruption.
+            {usage.overagePrice !== null
+              ? ` Orders past the limit are charged at $${usage.overagePrice.toFixed(2)} each - upgrade if you expect to go over regularly.`
+              : " Upgrade before you hit the limit to keep the survey running without interruption."}
           </s-paragraph>
           <s-link href="/app/billing">View plans</s-link>
         </s-banner>

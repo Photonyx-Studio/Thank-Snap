@@ -2,9 +2,14 @@ const PARTNER_API_VERSION = "2026-07";
 
 export interface ActiveSubscription {
   billingPeriod: string;
+  /** True once the merchant has cancelled - access lasts until the cycle ends. */
+  cancelAtEndOfCycle: boolean;
   trialEndsAt: string | null;
   currentBillingCycle: { startTime: string; endTime: string } | null;
-  items: { handle: string }[];
+  /** The plan item plus one item per usage meter, each by its handle. */
+  items: { handle: string | null }[];
+  /** A plan change scheduled for the end of the current cycle, if any. */
+  pendingUpdate: { items: { handle: string | null }[] } | null;
 }
 
 /**
@@ -46,9 +51,11 @@ export async function fetchActiveSubscription(
           query ActiveSubscription($appId: ID!, $shopId: ID!) {
             activeSubscription(appId: $appId, shopId: $shopId) {
               billingPeriod
+              cancelAtEndOfCycle
               trialEndsAt
               currentBillingCycle { startTime endTime }
               items { handle }
+              pendingUpdate { items { handle } }
             }
           }
         `,

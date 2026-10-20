@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { billOverageIfNeeded } from "../usage-billing.server";
 import { action } from "./api.survey-view";
 
 vi.mock("../db.server", () => ({
@@ -13,6 +14,8 @@ vi.mock("../db.server", () => ({
 vi.mock("../shopify.server", () => ({
   authenticate: { public: { checkout: vi.fn() } },
 }));
+
+vi.mock("../usage-billing.server", () => ({ billOverageIfNeeded: vi.fn() }));
 
 const mockDb = vi.mocked(db, true);
 const mockAuthenticate = vi.mocked(authenticate.public.checkout);
@@ -79,5 +82,9 @@ describe("POST /api/survey-view", () => {
       create: { shopId: "shop_1", shopifyOrderId: "gid://shopify/Order/1", orderNumber: "#1001" },
       update: {},
     });
+    expect(billOverageIfNeeded).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "shop_1" }),
+      { id: "order_1" },
+    );
   });
 });

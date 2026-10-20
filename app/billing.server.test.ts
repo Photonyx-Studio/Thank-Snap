@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { findPlanTier, PLAN_FEATURES, PLAN_TIERS } from "./billing.server";
+import {
+  findPlanItemHandle,
+  findPlanTier,
+  OVERAGE_METER_HANDLE,
+  PLAN_FEATURES,
+  PLAN_TIERS,
+} from "./billing.server";
 
 describe("PLAN_TIERS", () => {
   it("defines exactly the 3 tiers: $0/100, $19/1000, $49/5000 orders per month", () => {
@@ -50,5 +56,32 @@ describe("findPlanTier", () => {
   it("returns null for null/undefined", () => {
     expect(findPlanTier(null)).toBeNull();
     expect(findPlanTier(undefined)).toBeNull();
+  });
+});
+
+describe("findPlanItemHandle", () => {
+  it("picks the plan's item over the usage meter's, whatever the order", () => {
+    expect(
+      findPlanItemHandle([{ handle: OVERAGE_METER_HANDLE }, { handle: "tier-2" }]),
+    ).toBe("tier-2");
+  });
+
+  it("falls back to the first non-meter item for a handle it doesn't know", () => {
+    expect(
+      findPlanItemHandle([{ handle: OVERAGE_METER_HANDLE }, { handle: "legacy" }]),
+    ).toBe("legacy");
+  });
+
+  it("returns null for no items", () => {
+    expect(findPlanItemHandle(null)).toBeNull();
+    expect(findPlanItemHandle([])).toBeNull();
+  });
+});
+
+describe("overage pricing", () => {
+  it("charges $0.02 per extra order on every plan", () => {
+    for (const tier of PLAN_TIERS) {
+      expect(tier.overagePrice).toEqual({ amount: 0.02, currencyCode: "USD" });
+    }
   });
 });

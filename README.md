@@ -335,6 +335,54 @@ See `.env.example` for `DATABASE_URL`/`DIRECT_URL`. Production deployment
 `SCOPES`, and `SHOPIFY_APP_URL` set explicitly — locally the Shopify CLI
 injects these for you.
 
+Billing additionally needs `SHOPIFY_PARTNER_ORG_ID`,
+`SHOPIFY_PARTNER_API_ACCESS_TOKEN`, and `SHOPIFY_APP_GID` in every
+environment, including local (see `.env.example` for where each comes
+from). The CLI doesn't inject these.
+
+## Billing (Shopify App Pricing)
+
+Plans, prices and trials are configured in the Partner Dashboard (app >
+Distribution > Pricing content), not in code. The app only mirrors them in
+`PLAN_TIERS` (`app/billing.server.ts`) to show plans and enforce each plan's
+included orders, so the two must be kept in sync:
+
+| Plan handle | Name    | Price  | Included orders/month | Each extra order |
+| ----------- | ------- | ------ | --------------------- | ---------------- |
+| `tier-1`    | Seed    | Free   | 100                   | $0.02            |
+| `tier-2`    | Starter | $19/mo | 1,000                 | $0.02            |
+| `tier-3`    | Growth  | $49/mo | 5,000                 | $0.02            |
+
+Partner Dashboard setup each plan needs:
+
+- **Usage meter**: handle `extra_order` (`OVERAGE_METER_HANDLE`), fixed
+  pricing at $0.02 per unit. The app sends one unit per order past the plan's
+  included orders, so the meter has no free tier of its own. If a plan has
+  no meter, Shopify drops those events (they show as failures under Dev
+  Dashboard > Logs > App Billing Event) and the merchant isn't charged.
+- **Welcome link**: `/app/billing`. Shopify appends `plan_handle` after
+  the merchant approves a plan, and the app uses it to refresh the cached
+  subscription straight away and confirm the new plan.
+
+How it works at runtime:
+
+- **Subscription status** comes from the Partner API's `activeSubscription`
+  (`app/partner-api.server.ts`). It's cached on `Shop` for 5 minutes,
+  because Shopify App Pricing sends no webhooks for plan changes. Cancellations
+  (`cancelAtEndOfCycle`) and scheduled plan changes (`pendingUpdate`) are
+  shown on the Billing page. The Billing page always reads it live, so a plan
+  change shows there immediately.
+- **Reinstall**: the `app/uninstalled` webhook clears the cached
+  subscription, and so does `afterAuth` as a backstop. A reinstalled
+  shop always goes back through Shopify's plan approval page (App Store
+  requirement 1.2.2).
+- **Included orders** are counted per calendar month (UTC) of survey views
+  (`Order` rows). Past the cap the survey keeps showing, and
+  `api.survey-view` reports each extra order to the App Events API
+  (`app/usage-billing.server.ts`). The idempotency key is the order's id, so
+  an order can never be charged twice. Removing a plan's `overagePrice`
+  switches it back to a hard cap, where the survey stops showing at the limit.
+
 ## Framework-level gotchas (generic to the Shopify React Router template)
 
 <details>

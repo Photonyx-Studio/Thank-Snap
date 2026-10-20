@@ -102,7 +102,7 @@ describe("GET /api/active-survey", () => {
     });
   });
 
-  it("reports inactive once the shop is past its plan's order cap, even with a valid survey", async () => {
+  it("keeps showing the survey past the order cap, since every plan bills extra orders", async () => {
     mockDb.order.count.mockResolvedValue(1000 as never); // tier-2's cap
     mockDb.shop.update.mockResolvedValue({} as never);
     mockDb.shop.findUnique.mockResolvedValue({
@@ -132,6 +132,6 @@ describe("GET /api/active-survey", () => {
 
     const response = await loader({ request: makeRequest() } as never);
 
-    expect(await response.json()).toEqual({ active: false });
+    expect(await response.json()).toMatchObject({ active: true, surveyId: "survey_1" });
   });
 });
