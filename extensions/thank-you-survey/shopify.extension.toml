@@ -1,7 +1,9 @@
 api_version = "2026-07"
 
 [[extensions]]
-name = "thank-you-survey"
+# Shown to merchants as the block name in the checkout editor - the
+# handle below is the stable identifier and must not change.
+name = "ThankSnap survey"
 handle = "thank-you-survey"
 uid = "36589f62-9892-39cb-2f34-f27a46d18b634b74a298"
 type = "ui_extension"

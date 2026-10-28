@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "7eb5d1def41d9d84096bd528642361e9"
-name = "thank-snap"
+name = "ThankSnap"
 application_url = "https://app.thanksnap.com"
 embedded = true
 

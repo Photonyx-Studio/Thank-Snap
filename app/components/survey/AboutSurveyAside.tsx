@@ -3,7 +3,7 @@ export function AboutSurveyAside() {
     <s-section slot="aside" heading="About this survey">
       <s-paragraph>
         This survey renders on the Thank you page through the
-        &ldquo;thank-you-survey&rdquo; checkout extension — add it once in
+        &ldquo;ThankSnap survey&rdquo; checkout block — add it once in
         Settings → Checkout → Customize checkout. Once it&apos;s there, turn
         it off above any time to hide it without removing the block.
       </s-paragraph>

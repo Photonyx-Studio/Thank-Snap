@@ -10,18 +10,17 @@
  *
  * Usage:
  *   npx tsx scripts/seed-demo-data.ts <shop-domain> [--reset] [--dry-run]
+ *   npx tsx scripts/seed-demo-data.ts <shop-domain> --reset-only [--dry-run]
  *
  *   <shop-domain>  required, e.g. thanksnap-demo.myshopify.com
- *   --reset        delete this shop's existing Survey/Order/Response rows
- *                  first, so re-running doesn't pile up duplicates
+ *   --reset        delete this shop's existing Survey/Order/Response/
+ *                  Feedback rows first, so re-running doesn't pile up
+ *                  duplicates, then seeds fresh fake data as usual
+ *   --reset-only   same deletion, but stops there instead of reseeding -
+ *                  leaves the shop looking like a brand-new install (no
+ *                  survey, no orders, no responses, no feedback), for
+ *                  recording a genuine first-time setup walkthrough
  *   --dry-run      print what would be created/deleted, write nothing
- *
- * To remove the fake data later: re-run with --reset --dry-run false... or
- * just `--reset` alone, which deletes and recreates. To remove it with
- * nothing left behind, delete the Survey this script created (cascades its
- * Questions + Responses) and the Orders it created (cascades their
- * Responses) - both are printed at the end of a real run, or just delete
- * the Shop row entirely if this shop has nothing else of value.
  */
 import { PrismaClient } from "@prisma/client";
 
@@ -29,11 +28,15 @@ const prisma = new PrismaClient();
 
 const ATTRIBUTION_QUESTION = "How did you hear about us?";
 const ATTRIBUTION_OPTIONS: { label: string; weight: number }[] = [
-  { label: "Instagram", weight: 35 },
-  { label: "Google search", weight: 25 },
-  { label: "Friend or family", weight: 20 },
-  { label: "Email newsletter", weight: 12 },
-  { label: "TikTok", weight: 8 },
+  { label: "Instagram", weight: 28 },
+  { label: "Google search", weight: 20 },
+  { label: "TikTok", weight: 16 },
+  { label: "Friend or family", weight: 14 },
+  { label: "Email newsletter", weight: 9 },
+  { label: "Facebook", weight: 7 },
+  { label: "YouTube", weight: 4 },
+  { label: "Pinterest", weight: 3 },
+  { label: "Influencer / creator", weight: 3 },
 ];
 
 const SATISFACTION_QUESTION = "How likely are you to shop with us again?";
@@ -82,10 +85,13 @@ async function main() {
   const args = process.argv.slice(2);
   const shopDomain = args.find((a) => !a.startsWith("--"));
   const dryRun = args.includes("--dry-run");
-  const reset = args.includes("--reset");
+  const resetOnly = args.includes("--reset-only");
+  const reset = resetOnly || args.includes("--reset");
 
   if (!shopDomain) {
-    console.error("Usage: npx tsx scripts/seed-demo-data.ts <shop-domain> [--reset] [--dry-run]");
+    console.error(
+      "Usage: npx tsx scripts/seed-demo-data.ts <shop-domain> [--reset | --reset-only] [--dry-run]",
+    );
     process.exit(1);
   }
   if (!shopDomain.endsWith(".myshopify.com")) {
@@ -103,13 +109,34 @@ async function main() {
     } else {
       const orderCount = await prisma.order.count({ where: { shopId: shop.id } });
       const surveyCount = await prisma.survey.count({ where: { shopId: shop.id } });
-      console.log(`--reset: would delete ${orderCount} orders and ${surveyCount} survey(s) (cascades their questions/responses).`);
+      const feedbackCount = await prisma.feedback.count({ where: { shopId: shop.id } });
+      console.log(
+        `--reset: would delete ${orderCount} orders, ${surveyCount} survey(s) (cascades their questions/responses), and ${feedbackCount} feedback submission(s).`,
+      );
       if (!dryRun) {
         await prisma.order.deleteMany({ where: { shopId: shop.id } });
         await prisma.survey.deleteMany({ where: { shopId: shop.id } });
-        console.log("Deleted.");
+        await prisma.feedback.deleteMany({ where: { shopId: shop.id } });
+        // Clear the cached usage counter too - otherwise the Billing page
+        // keeps showing the pre-reset order count until its 5-minute TTL
+        // expires, even though the orders behind it are gone.
+        await prisma.shop.update({
+          where: { id: shop.id },
+          data: { usagePeriodOrderCount: 0, usagePeriodStart: null, usageCheckedAt: null },
+        });
+        console.log("Deleted, and reset the cached usage counter.");
       }
     }
+  }
+
+  if (resetOnly) {
+    console.log(
+      dryRun
+        ? "--reset-only (dry run): would stop here, leaving the shop empty - no reseed."
+        : "--reset-only: done. Shop now looks like a fresh install - no survey, no orders, no responses, no feedback.",
+    );
+    await prisma.$disconnect();
+    return;
   }
 
   if (dryRun) {
@@ -235,7 +262,7 @@ async function main() {
   }
 
   console.log(`Done. Created survey ${survey.id}, ${ordersCreated} orders, ${responsesCreated} responses, ${FEEDBACK_SAMPLES.length} feedback submissions.`);
-  console.log(`To remove: npx tsx scripts/seed-demo-data.ts ${shopDomain} --reset`);
+  console.log(`To remove without reseeding: npx tsx scripts/seed-demo-data.ts ${shopDomain} --reset-only`);
 
   await prisma.$disconnect();
 }

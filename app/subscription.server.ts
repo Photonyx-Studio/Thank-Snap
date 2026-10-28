@@ -1,7 +1,8 @@
+import type { Shop } from "@prisma/client";
 import db from "./db.server";
-import { fetchActiveSubscription } from "./partner-api.server";
+import { cancelActiveSubscription, fetchActiveSubscription } from "./partner-api.server";
 import { findPlanItemHandle, findPlanTier } from "./billing.server";
-import type { authenticate } from "./shopify.server";
+import { unauthenticated, type authenticate } from "./shopify.server";
 
 type AdminContext = Awaited<ReturnType<typeof authenticate.admin>>;
 
@@ -56,10 +57,44 @@ export async function refreshSubscription({
     },
   } = await shopGidResponse.json();
 
+  return applySubscriptionToShop(shop.id, shopGid);
+}
+
+/**
+ * Re-checks one shop's subscription against the Partner API outside of any
+ * admin page load - for the scheduled resync (see
+ * routes/internal.resync-subscriptions.tsx), which is the only way to catch
+ * a cancellation, freeze, or plan change that happens without the merchant
+ * ever reopening the embedded admin: Shopify App Pricing has no webhook for
+ * any subscription change, including cancellation (confirmed against
+ * shopify.dev - this isn't a gap to close with a webhook).
+ */
+export async function resyncSubscriptionForShop(
+  shop: Pick<Shop, "id" | "shopDomain" | "shopGid">,
+): Promise<void> {
+  const shopGid = shop.shopGid ?? (await fetchAndCacheShopGid(shop));
+  await applySubscriptionToShop(shop.id, shopGid);
+}
+
+/**
+ * Cancels the shop's subscription at the Partner API (deferred - see
+ * cancelActiveSubscription), then immediately re-pulls the fresh state so
+ * the Billing page reflects `cancelAtEndOfCycle` on the very next render
+ * rather than waiting out the cache TTL.
+ */
+export async function cancelSubscription(
+  shop: Pick<Shop, "id" | "shopDomain" | "shopGid">,
+): Promise<void> {
+  const shopGid = shop.shopGid ?? (await fetchAndCacheShopGid(shop));
+  await cancelActiveSubscription(shopGid);
+  await applySubscriptionToShop(shop.id, shopGid);
+}
+
+async function applySubscriptionToShop(shopId: string, shopGid: string) {
   const subscription = await fetchActiveSubscription(shopGid);
 
   return db.shop.update({
-    where: { id: shop.id },
+    where: { id: shopId },
     data: {
       shopGid,
       subscriptionActive: Boolean(subscription),
@@ -77,6 +112,28 @@ export async function refreshSubscription({
       subscriptionCheckedAt: new Date(),
     },
   });
+}
+
+/**
+ * Looks up a shop's GID through an offline admin session, for code paths
+ * (the scheduled resync, and usage-billing's own fallback) that don't have
+ * a live admin request to read it from the way refreshSubscription does.
+ */
+export async function fetchAndCacheShopGid(
+  shop: Pick<Shop, "id" | "shopDomain">,
+): Promise<string> {
+  const { admin } = await unauthenticated.admin(shop.shopDomain);
+  const response = await admin.graphql(`#graphql
+    query ShopGid { shop { id } }
+  `);
+  const {
+    data: {
+      shop: { id: shopGid },
+    },
+  } = await response.json();
+
+  await db.shop.update({ where: { id: shop.id }, data: { shopGid } });
+  return shopGid;
 }
 
 /**

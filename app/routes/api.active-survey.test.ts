@@ -103,11 +103,11 @@ describe("GET /api/active-survey", () => {
   });
 
   it("keeps showing the survey past the order cap, since every plan bills extra orders", async () => {
-    mockDb.order.count.mockResolvedValue(1000 as never); // tier-2's cap
+    mockDb.order.count.mockResolvedValue(1000 as never); // starter's cap
     mockDb.shop.update.mockResolvedValue({} as never);
     mockDb.shop.findUnique.mockResolvedValue({
       id: "shop_1",
-      subscriptionPlanHandle: "tier-2",
+      subscriptionPlanHandle: "starter",
       usagePeriodStart: null,
       usagePeriodOrderCount: 0,
       usageCheckedAt: null,

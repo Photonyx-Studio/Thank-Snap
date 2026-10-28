@@ -70,7 +70,7 @@ export default function FeedbackPage() {
   }
 
   return (
-    <s-page heading="Contact us">
+    <s-page heading="Support">
       <s-link slot="breadcrumb-actions" href="/app">
         Home
       </s-link>

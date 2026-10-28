@@ -64,12 +64,19 @@ export default function App() {
   return (
     <AppProvider embedded apiKey={apiKey}>
       <s-app-nav>
-        <s-link href="/app">Home</s-link>
+        {/* rel="home" makes /app the app-name link and hides it from the
+            menu - a separate "Home" item duplicating the app name is a
+            Built for Shopify fail (4.1.4). */}
+        {/* Spread because @shopify/polaris-types' s-link doesn't declare
+            App Bridge's nav-only `rel` attribute. */}
+        <s-link href="/app" {...{ rel: "home" }}>
+          Home
+        </s-link>
         <s-link href="/app/dashboard">Dashboard</s-link>
         <s-link href="/app/survey">Survey</s-link>
         <s-link href="/app/responses">Responses</s-link>
         <s-link href="/app/billing">Billing</s-link>
-        <s-link href="/app/feedback">Contact us</s-link>
+        <s-link href="/app/feedback">Support</s-link>
       </s-app-nav>
       {isNavigating ? (
         <div

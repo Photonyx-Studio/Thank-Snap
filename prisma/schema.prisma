@@ -137,6 +137,15 @@ model Order {
   // over the plan's included orders (see usage-billing.server.ts), so a
   // reloaded Thank you page doesn't re-send it. Null = not billed.
   overageBilledAt DateTime?
+  // The checkout session token's `sid` that first reported this order (see
+  // api.survey-view.tsx). orderId/orderNumber come from the buyer's own
+  // extension, unverified against a real order - `sid` is unique per buyer
+  // checkout session, so the same sid reporting a second, different order
+  // means one captured token is being replayed with fabricated order ids,
+  // not a legitimate reload. Used to withhold overage billing (not the
+  // order record itself) in that case. Null for orders created before this
+  // column existed.
+  reporterSid     String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -144,6 +153,7 @@ model Order {
 
   @@unique([shopId, shopifyOrderId])
   @@index([shopId])
+  @@index([shopId, reporterSid])
 }
 
 model Response {

@@ -1,9 +1,12 @@
-import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useLoaderData } from "react-router";
+import { useEffect } from "react";
+import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
+import { useFetcher, useLoaderData } from "react-router";
+import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import db from "../db.server";
 import {
+  cancelSubscription,
   getPlanSelectionUrl,
   getUsageStatus,
   refreshSubscription,
@@ -12,9 +15,11 @@ import { findPlanTier, PLAN_FEATURES, PLAN_TIERS } from "../billing.server";
 
 // The merchant-facing /app/billing page: current plan + this month's usage
 // against its order cap, every tier on offer (PLAN_TIERS), and the shared
-// feature list (PLAN_FEATURES) every tier includes. Plan changes themselves
-// happen on Shopify's own hosted page (manageUrl); this route only reads
-// and displays state.
+// feature list (PLAN_FEATURES) every tier includes. Choosing or switching
+// tiers happens on Shopify's own hosted page (manageUrl) - Shopify owns that
+// flow end to end. Cancellation has its own in-app button below instead,
+// via the Partner API's appSubscriptionCancel (see subscription.server.ts),
+// so a merchant can cancel without leaving the app.
 //
 // Point each plan's welcome link in the Partner Dashboard here
 // (/app/billing): Shopify appends plan_handle after the merchant approves
@@ -71,6 +76,27 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   };
 };
 
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
+
+  const shop = await db.shop.findUnique({ where: { shopDomain: session.shop } });
+  if (!shop?.subscriptionActive) {
+    return { ok: false, error: "There's no active subscription to cancel." };
+  }
+
+  try {
+    await cancelSubscription(shop);
+  } catch (error) {
+    console.error("Failed to cancel subscription", { shopId: shop.id, error });
+    return {
+      ok: false,
+      error: "Something went wrong cancelling your subscription. Please try again.",
+    };
+  }
+
+  return { ok: true };
+};
+
 function formatMoney(amount: number) {
   return amount.toLocaleString(undefined, {
     style: "currency",
@@ -90,6 +116,28 @@ function formatDate(iso: string) {
 export default function BillingPage() {
   const { tiers, features, subscription, manageUrl, usage, justSubscribed } =
     useLoaderData<typeof loader>();
+  const cancelFetcher = useFetcher<typeof action>();
+  const shopify = useAppBridge();
+
+  const isCancelling =
+    ["loading", "submitting"].includes(cancelFetcher.state) &&
+    cancelFetcher.formMethod === "POST";
+
+  useEffect(() => {
+    if (!cancelFetcher.data) return;
+    if (cancelFetcher.data.ok) {
+      shopify.toast.show("Your subscription has been cancelled");
+    } else {
+      shopify.toast.show(
+        cancelFetcher.data.error ?? "Something went wrong. Please try again.",
+        { isError: true },
+      );
+    }
+  }, [cancelFetcher.data, shopify]);
+
+  function handleCancelConfirm() {
+    cancelFetcher.submit({}, { method: "POST" });
+  }
 
   return (
     <s-page heading="Billing">
@@ -149,7 +197,7 @@ export default function BillingPage() {
           </s-paragraph>
         ) : null}
 
-        {usage.orderCap === null ? null : usage.overagePrice !== null ? (
+        {!subscription || usage.orderCap === null ? null : usage.overagePrice !== null ? (
           <s-text tone={usage.isOverCap ? "caution" : "neutral"}>
             {Math.min(usage.currentCount, usage.orderCap).toLocaleString()} /{" "}
             {usage.orderCap.toLocaleString()} included orders used this month
@@ -166,16 +214,63 @@ export default function BillingPage() {
           </s-text>
         )}
 
-        <s-button href={manageUrl} target="_top" variant="secondary">
-          {subscription ? "Manage plan" : "Choose a plan"}
-        </s-button>
+        <s-stack direction="inline" gap="base">
+          <s-button href={manageUrl} target="_top" variant="secondary">
+            {subscription ? "Manage plan" : "Choose a plan"}
+          </s-button>
+
+          {subscription && !subscription.cancelAtEndOfCycle ? (
+            <s-button commandFor="cancel-subscription-modal" command="--show" variant="tertiary" tone="critical">
+              Cancel subscription
+            </s-button>
+          ) : null}
+        </s-stack>
+
+        {subscription && !subscription.cancelAtEndOfCycle ? (
+          <s-modal id="cancel-subscription-modal" heading="Cancel your subscription?">
+            <s-paragraph>
+              You&apos;ll keep {subscription.planName} and its order limit
+              until{" "}
+              {subscription.currentPeriodEnd
+                ? formatDate(subscription.currentPeriodEnd)
+                : "the end of this billing cycle"}
+              , then your plan won&apos;t renew. You can resubscribe at any
+              time before or after that.
+            </s-paragraph>
+            <s-button
+              slot="primary-action"
+              variant="primary"
+              tone="critical"
+              commandFor="cancel-subscription-modal"
+              command="--hide"
+              loading={isCancelling}
+              onClick={handleCancelConfirm}
+            >
+              Cancel subscription
+            </s-button>
+            <s-button
+              slot="secondary-actions"
+              variant="secondary"
+              commandFor="cancel-subscription-modal"
+              command="--hide"
+            >
+              Keep my plan
+            </s-button>
+          </s-modal>
+        ) : null}
       </s-section>
 
       <s-section heading="Plans">
         {/* One card per tier; the subscribed tier (if any) is highlighted
             via background, not a separate badge-only treatment, so it
             reads at a glance in a row of otherwise-identical cards. */}
-        <s-grid gridTemplateColumns="1fr 1fr 1fr" gap="base">
+        {/* Stacks to one column on narrow (mobile) widths - Built for
+            Shopify 4.1.2. */}
+        <s-query-container>
+        <s-grid
+          gridTemplateColumns="@container (inline-size > 480px) 1fr 1fr 1fr, 1fr"
+          gap="base"
+        >
           {tiers.map((tier) => (
             <s-box
               key={tier.handle}
@@ -208,6 +303,7 @@ export default function BillingPage() {
             </s-box>
           ))}
         </s-grid>
+        </s-query-container>
 
         <s-heading>What&apos;s included in every plan</s-heading>
         <s-unordered-list>
@@ -219,9 +315,10 @@ export default function BillingPage() {
 
       <s-section slot="aside" heading="Managing your subscription">
         <s-paragraph>
-          Plan changes and cancellations are handled by Shopify - use the
-          &ldquo;Manage plan&rdquo; button to view or change your plan at
-          any time.
+          Use the &ldquo;Manage plan&rdquo; button to switch plans at any
+          time - Shopify hosts that page. To stop your subscription instead,
+          use the &ldquo;Cancel subscription&rdquo; button here; you&apos;ll
+          keep access until the current billing cycle ends.
         </s-paragraph>
         <s-paragraph>
           Included orders reset at the start of each calendar month. If you

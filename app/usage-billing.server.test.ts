@@ -7,7 +7,8 @@ import { billOverageIfNeeded } from "./usage-billing.server";
 vi.mock("./db.server", () => ({
   default: {
     shop: { update: vi.fn() },
-    order: { count: vi.fn(), update: vi.fn() },
+    order: { update: vi.fn() },
+    $queryRaw: vi.fn(),
   },
 }));
 vi.mock("./app-events.server", () => ({ sendBillingEvent: vi.fn() }));
@@ -35,7 +36,7 @@ const shop = {
   shopDomain: "shop.myshopify.com",
   shopGid: "gid://shopify/Shop/5678",
   subscriptionActive: true,
-  subscriptionPlanHandle: "tier-1", // cap 100
+  subscriptionPlanHandle: "seed", // cap 100
 };
 const order = {
   id: "order_abc",
@@ -45,16 +46,18 @@ const order = {
 
 describe("billOverageIfNeeded", () => {
   it("bills one unit, keyed by the order id, for an order past the plan's cap", async () => {
-    mockDb.order.count.mockResolvedValue(101 as never);
+    mockDb.$queryRaw.mockResolvedValue([{ count: 101n }] as never);
 
     await billOverageIfNeeded(shop, order);
 
-    expect(mockDb.order.count).toHaveBeenCalledWith({
-      where: {
-        shopId: "shop_1",
-        createdAt: { gte: new Date("2026-06-01T00:00:00.000Z"), lte: order.createdAt },
-      },
-    });
+    expect(mockDb.$queryRaw).toHaveBeenCalledWith(
+      expect.anything(),
+      "shop_1",
+      new Date("2026-06-01T00:00:00.000Z"),
+      order.createdAt,
+      order.createdAt,
+      order.id,
+    );
     expect(mockSend).toHaveBeenCalledWith({
       shopGid: "gid://shopify/Shop/5678",
       eventHandle: "extra_order",
@@ -68,17 +71,38 @@ describe("billOverageIfNeeded", () => {
   });
 
   it("doesn't bill the order that exactly reaches the cap", async () => {
-    mockDb.order.count.mockResolvedValue(100 as never);
+    mockDb.$queryRaw.mockResolvedValue([{ count: 100n }] as never);
 
     await billOverageIfNeeded(shop, order);
 
     expect(mockSend).not.toHaveBeenCalled();
   });
 
+  it("doesn't double-bill every order tied at the same createdAt across the cap boundary", async () => {
+    // Three orders (positions 99, 100, 101) land on the exact same DB
+    // timestamp tick. A naive `createdAt <= order.createdAt` count would
+    // give all three the same inclusive count (101) and bill all three -
+    // the (createdAt, id) tiebreaker must give each its own true position.
+    const tiedAt = order.createdAt;
+    const tied = (id: string) => ({ id, createdAt: tiedAt, overageBilledAt: null });
+
+    mockDb.$queryRaw.mockResolvedValueOnce([{ count: 99n }] as never);
+    await billOverageIfNeeded(shop, tied("order_099"));
+    mockDb.$queryRaw.mockResolvedValueOnce([{ count: 100n }] as never);
+    await billOverageIfNeeded(shop, tied("order_100"));
+    mockDb.$queryRaw.mockResolvedValueOnce([{ count: 101n }] as never);
+    await billOverageIfNeeded(shop, tied("order_101"));
+
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: "order-order_101" }),
+    );
+  });
+
   it("doesn't re-bill an order that was already billed", async () => {
     await billOverageIfNeeded(shop, { ...order, overageBilledAt: new Date() });
 
-    expect(mockDb.order.count).not.toHaveBeenCalled();
+    expect(mockDb.$queryRaw).not.toHaveBeenCalled();
     expect(mockSend).not.toHaveBeenCalled();
   });
 
@@ -95,12 +119,12 @@ describe("billOverageIfNeeded", () => {
       createdAt: new Date("2026-05-31T23:00:00.000Z"),
     });
 
-    expect(mockDb.order.count).not.toHaveBeenCalled();
+    expect(mockDb.$queryRaw).not.toHaveBeenCalled();
     expect(mockSend).not.toHaveBeenCalled();
   });
 
   it("looks up and stores the shop GID when it isn't cached yet", async () => {
-    mockDb.order.count.mockResolvedValue(150 as never);
+    mockDb.$queryRaw.mockResolvedValue([{ count: 150n }] as never);
     mockUnauthenticatedAdmin.mockResolvedValue({
       admin: {
         graphql: vi.fn(async () =>
@@ -121,7 +145,7 @@ describe("billOverageIfNeeded", () => {
   });
 
   it("swallows a failed App Events call and leaves the order unbilled for a retry", async () => {
-    mockDb.order.count.mockResolvedValue(101 as never);
+    mockDb.$queryRaw.mockResolvedValue([{ count: 101n }] as never);
     mockSend.mockRejectedValue(new Error("App Events request failed: 500"));
 
     await expect(billOverageIfNeeded(shop, order)).resolves.toBeUndefined();

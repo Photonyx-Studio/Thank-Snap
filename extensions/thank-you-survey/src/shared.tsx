@@ -234,8 +234,8 @@ export function Survey({ title, description, onSubmit, children, loading, disabl
     return (
       <s-box border="base" padding="base" borderRadius="base">
         <s-stack gap="base">
-          <s-heading>Thanks for your feedback!</s-heading>
-          <s-text>Your response has been submitted</s-text>
+          <s-heading>{shopify.i18n.translate("thanksHeading")}</s-heading>
+          <s-text>{shopify.i18n.translate("thanksBody")}</s-text>
         </s-stack>
       </s-box>
     );
@@ -253,7 +253,7 @@ export function Survey({ title, description, onSubmit, children, loading, disabl
           loading={loading}
           disabled={disabled}
         >
-          Submit feedback
+          {shopify.i18n.translate("submitButton")}
         </s-button>
       </s-stack>
     </s-box>
