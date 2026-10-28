@@ -38,14 +38,14 @@ export default function Index() {
   const likelyNotAddedToCheckout = stats.surveysShown === 0;
 
   return (
-    <s-page heading="thank-snap">
+    <s-page heading="ThankSnap">
       {likelyNotAddedToCheckout ? (
         <s-banner heading="One more step: add the survey to your Thank you page" tone="warning">
           <s-paragraph>
             Installing the app doesn&apos;t place the survey automatically.
             Open checkout settings, click <strong>Customize checkout</strong>,
             then switch the page selector at the top of that editor to{" "}
-            <strong>Thank you page</strong> and add the thank-snap block
+            <strong>Thank you page</strong> and add the ThankSnap survey block
             there — not the checkout steps, which is a different page in
             the same editor.
           </s-paragraph>
@@ -132,7 +132,7 @@ export default function Index() {
       <s-section slot="aside" heading="How it works">
         <s-paragraph>
           Customers see this survey on the Thank you page after checkout,
-          through the &ldquo;thank-you-survey&rdquo; checkout extension — but
+          through the &ldquo;ThankSnap survey&rdquo; checkout block — but
           only once you&apos;ve added it there yourself, specifically on the{" "}
           <strong>Thank you page</strong> template (the checkout editor also
           covers the checkout steps themselves, which is a separate page in

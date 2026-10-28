@@ -46,7 +46,7 @@ describe("PLAN_FEATURES", () => {
 
 describe("findPlanTier", () => {
   it("finds a tier by its handle", () => {
-    expect(findPlanTier("tier-2")?.name).toBe("Starter");
+    expect(findPlanTier("starter")?.name).toBe("Starter");
   });
 
   it("returns null for an unknown handle", () => {
@@ -62,8 +62,8 @@ describe("findPlanTier", () => {
 describe("findPlanItemHandle", () => {
   it("picks the plan's item over the usage meter's, whatever the order", () => {
     expect(
-      findPlanItemHandle([{ handle: OVERAGE_METER_HANDLE }, { handle: "tier-2" }]),
-    ).toBe("tier-2");
+      findPlanItemHandle([{ handle: OVERAGE_METER_HANDLE }, { handle: "starter" }]),
+    ).toBe("starter");
   });
 
   it("falls back to the first non-meter item for a handle it doesn't know", () => {

@@ -51,7 +51,7 @@ export default function App() {
             <ellipse cx="1267.66" cy="335.67" rx="28.44" ry="29.17" fill="#0F6E56" />
           </svg>
           <h1 className={styles.wordmark}>
-            thank<span className={styles.accent}>Snap</span>
+            Thank<span className={styles.accent}>Snap</span>
           </h1>
         </div>
         <p className={styles.text}>
@@ -63,7 +63,7 @@ export default function App() {
             the merchant's own admin), not typed in on this page. */}
         <div className={styles.form}>
           <div className={styles.field}>
-            <span className={styles.label}>Already have thank-snap installed?</span>
+            <span className={styles.label}>Already have ThankSnap installed?</span>
             <span className={styles.hint}>
               Open it from the Apps section of your Shopify admin.
             </span>

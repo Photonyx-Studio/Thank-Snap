@@ -3,7 +3,7 @@ const TOKEN_URL = "https://api.shopify.com/auth/access_token";
 const EVENTS_URL = `https://api.shopify.com/app/${APP_EVENTS_API_VERSION}/events`;
 // Shopify rejects requests without one with a 403 ("You do not have
 // permission to access this website").
-const USER_AGENT = "thank-snap";
+const USER_AGENT = "ThankSnap";
 
 // Tokens last 60 minutes - refresh a few minutes early so one never expires
 // mid-request.

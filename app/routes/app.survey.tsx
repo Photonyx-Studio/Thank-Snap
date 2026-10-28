@@ -18,6 +18,7 @@ import { TemplateGallery } from "../components/survey/TemplateGallery";
 import { SurveyDetailsSection } from "../components/survey/SurveyDetailsSection";
 import { QuestionsSection } from "../components/survey/QuestionsSection";
 import { AboutSurveyAside } from "../components/survey/AboutSurveyAside";
+import { SurveyPreview } from "../components/survey/SurveyPreview";
 
 const SAVE_BAR_ID = "survey-save-bar";
 
@@ -143,6 +144,12 @@ export default function SurveyPage() {
         />
       </s-stack>
 
+      <SurveyPreview
+        title={builder.title}
+        description={builder.description}
+        active={builder.active}
+        questions={builder.questions}
+      />
       <AboutSurveyAside />
     </s-page>
   );

@@ -1,0 +1,7 @@
+{
+  "submitButton": "Envoyer mon avis",
+  "thanksHeading": "Merci pour votre avis !",
+  "thanksBody": "Votre réponse a bien été envoyée.",
+  "answerAtLeastOne": "Veuillez répondre à au moins une question.",
+  "genericError": "Une erreur s'est produite. Veuillez réessayer."
+}

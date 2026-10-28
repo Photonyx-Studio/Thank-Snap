@@ -345,13 +345,17 @@ from). The CLI doesn't inject these.
 Plans, prices and trials are configured in the Partner Dashboard (app >
 Distribution > Pricing content), not in code. The app only mirrors them in
 `PLAN_TIERS` (`app/billing.server.ts`) to show plans and enforce each plan's
-included orders, so the two must be kept in sync:
+included orders, so the two must be kept in sync. The Partner Dashboard
+slugs `plan_handle` from the plan's display name (lowercased) rather than
+using whatever handle you type when creating it there - confirm the actual
+handle (e.g. via the Active Subscription API, or the welcome-link redirect's
+`plan_handle` query param) instead of assuming it matches what you entered:
 
 | Plan handle | Name    | Price  | Included orders/month | Each extra order |
 | ----------- | ------- | ------ | --------------------- | ---------------- |
-| `tier-1`    | Seed    | Free   | 100                   | $0.02            |
-| `tier-2`    | Starter | $19/mo | 1,000                 | $0.02            |
-| `tier-3`    | Growth  | $49/mo | 5,000                 | $0.02            |
+| `seed`      | Seed    | Free   | 100                   | $0.02            |
+| `starter`   | Starter | $19/mo | 1,000                 | $0.02            |
+| `growth`    | Growth  | $49/mo | 5,000                 | $0.02            |
 
 Partner Dashboard setup each plan needs:
 
@@ -368,20 +372,44 @@ How it works at runtime:
 
 - **Subscription status** comes from the Partner API's `activeSubscription`
   (`app/partner-api.server.ts`). It's cached on `Shop` for 5 minutes,
-  because Shopify App Pricing sends no webhooks for plan changes. Cancellations
-  (`cancelAtEndOfCycle`) and scheduled plan changes (`pendingUpdate`) are
-  shown on the Billing page. The Billing page always reads it live, so a plan
-  change shows there immediately.
+  because Shopify App Pricing sends no webhook for any subscription change -
+  not even cancellation. Cancellations (`cancelAtEndOfCycle`) and scheduled
+  plan changes (`pendingUpdate`) are shown on the Billing page. The Billing
+  page always reads it live, so a plan change shows there immediately.
 - **Reinstall**: the `app/uninstalled` webhook clears the cached
   subscription, and so does `afterAuth` as a backstop. A reinstalled
   shop always goes back through Shopify's plan approval page (App Store
   requirement 1.2.2).
+- **Cancelling (or changing plan) without reopening the admin**: since
+  there's no webhook for this, a merchant who cancels through Shopify and
+  never reopens the embedded admin would otherwise keep a stale
+  `subscriptionActive: true` forever - both the buyer-facing survey and
+  overage billing read that same cached flag. `internal.resync-subscriptions`
+  polls the Partner API for any shop the admin hasn't refreshed in 6 hours,
+  on a schedule (`.github/workflows/resync-subscriptions.yml`, every 30
+  minutes), paced under the Partner API's shared rate limit. Requires
+  `CRON_SECRET` (see `.env.example`) set the same in both the app's
+  environment and the GitHub repo's secrets.
 - **Included orders** are counted per calendar month (UTC) of survey views
   (`Order` rows). Past the cap the survey keeps showing, and
   `api.survey-view` reports each extra order to the App Events API
   (`app/usage-billing.server.ts`). The idempotency key is the order's id, so
-  an order can never be charged twice. Removing a plan's `overagePrice`
-  switches it back to a hard cap, where the survey stops showing at the limit.
+  an order can never be charged twice, and the count that decides whether an
+  order is over the cap breaks ties on `id` (not just `createdAt`) so two
+  orders landing in the same database timestamp tick can't both get billed
+  for a single slot. Removing a plan's `overagePrice` switches it back to a
+  hard cap, where the survey stops showing at the limit.
+- **`orderId` isn't a verified order**: it comes straight from the checkout
+  extension's own `OrderConfirmationApi` (deliberately not a real order
+  sync - see the `api.survey-view` section above), so nothing stops a buyer
+  from replaying their own checkout session token with fabricated order ids
+  to force overage charges. The checkout session token's `sid` (unique per
+  buyer session) bounds this: a second, different order reported under a
+  `sid` that already has one withholds overage billing (not the
+  survey-view record itself). This isn't a full fix - the first fake order
+  under a captured token still bills once - and the real fix (verifying
+  against a real order via the Admin API) needs the `read_orders` scope and
+  Shopify's Protected Customer Data approval, which hasn't been requested.
 
 ## Framework-level gotchas (generic to the Shopify React Router template)
 

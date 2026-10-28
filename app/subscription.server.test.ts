@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import db from "./db.server";
 import { findPlanTier } from "./billing.server";
-import { fetchActiveSubscription } from "./partner-api.server";
+import { cancelActiveSubscription, fetchActiveSubscription } from "./partner-api.server";
+import { unauthenticated } from "./shopify.server";
 import {
+  cancelSubscription,
   getUsageStatus,
   refreshSubscription,
   requireActiveSubscription,
+  resyncSubscriptionForShop,
 } from "./subscription.server";
 
 vi.mock("./db.server", () => ({
@@ -15,7 +18,11 @@ vi.mock("./db.server", () => ({
   },
 }));
 
-vi.mock("./partner-api.server", () => ({ fetchActiveSubscription: vi.fn() }));
+vi.mock("./partner-api.server", () => ({
+  fetchActiveSubscription: vi.fn(),
+  cancelActiveSubscription: vi.fn(),
+}));
+vi.mock("./shopify.server", () => ({ unauthenticated: { admin: vi.fn() } }));
 
 // Real implementation by default - wrapped only so a test can stand in a
 // plan without an overagePrice (every real tier currently has one).
@@ -26,6 +33,7 @@ vi.mock("./billing.server", async (importOriginal) => {
 
 const mockDb = vi.mocked(db, true);
 const mockFetchActiveSubscription = vi.mocked(fetchActiveSubscription);
+const mockCancelActiveSubscription = vi.mocked(cancelActiveSubscription);
 const mockFindPlanTier = vi.mocked(findPlanTier);
 
 beforeEach(() => {
@@ -41,7 +49,7 @@ afterEach(() => {
 function shopRow(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: "shop_1",
-    subscriptionPlanHandle: "tier-2",
+    subscriptionPlanHandle: "starter",
     usagePeriodStart: null,
     usagePeriodOrderCount: 0,
     usageCheckedAt: null,
@@ -68,7 +76,7 @@ describe("getUsageStatus", () => {
       },
     });
     expect(status).toEqual({
-      planHandle: "tier-2",
+      planHandle: "starter",
       planName: "Starter",
       orderCap: 1000,
       currentCount: 42,
@@ -145,7 +153,7 @@ describe("getUsageStatus", () => {
   });
 
   it("is over cap once the count reaches the plan's orderCap", async () => {
-    mockDb.shop.upsert.mockResolvedValue(shopRow() as never); // tier-2, cap 1000
+    mockDb.shop.upsert.mockResolvedValue(shopRow() as never); // starter, cap 1000
     mockDb.order.count.mockResolvedValue(1000 as never);
 
     const status = await getUsageStatus("shop.myshopify.com");
@@ -154,7 +162,7 @@ describe("getUsageStatus", () => {
   });
 
   it("is not over cap one order below the plan's orderCap", async () => {
-    mockDb.shop.upsert.mockResolvedValue(shopRow() as never); // tier-2, cap 1000
+    mockDb.shop.upsert.mockResolvedValue(shopRow() as never); // starter, cap 1000
     mockDb.order.count.mockResolvedValue(999 as never);
 
     const status = await getUsageStatus("shop.myshopify.com");
@@ -163,7 +171,7 @@ describe("getUsageStatus", () => {
   });
 
   it("counts orders past the cap as overage, and keeps the survey showing on a plan with an overage price", async () => {
-    mockDb.shop.upsert.mockResolvedValue(shopRow() as never); // tier-2, cap 1000
+    mockDb.shop.upsert.mockResolvedValue(shopRow() as never); // starter, cap 1000
     mockDb.order.count.mockResolvedValue(1042 as never);
 
     const status = await getUsageStatus("shop.myshopify.com");
@@ -176,7 +184,7 @@ describe("getUsageStatus", () => {
 
   it("pauses the survey once over cap on a plan without an overage price", async () => {
     mockFindPlanTier.mockReturnValueOnce({
-      handle: "tier-2",
+      handle: "starter",
       name: "Starter",
       price: { amount: 19, currencyCode: "USD" },
       orderCap: 1000,
@@ -203,7 +211,7 @@ describe("refreshSubscription", () => {
     return {
       id: "shop_1",
       subscriptionActive: true,
-      subscriptionPlanHandle: "tier-1",
+      subscriptionPlanHandle: "seed",
       subscriptionCheckedAt: new Date("2026-06-15T11:58:00.000Z"), // 2 min ago
       ...overrides,
     };
@@ -221,7 +229,7 @@ describe("refreshSubscription", () => {
     mockDb.shop.upsert.mockResolvedValue(cachedShop() as never);
     mockFetchActiveSubscription.mockResolvedValue(null);
 
-    await refreshSubscription({ admin, session, planHandle: "tier-2" } as never);
+    await refreshSubscription({ admin, session, planHandle: "starter" } as never);
 
     expect(mockFetchActiveSubscription).toHaveBeenCalledWith("gid://shopify/Shop/5678");
   });
@@ -238,7 +246,7 @@ describe("refreshSubscription", () => {
   it("keeps using a fresh cache when plan_handle matches the cached plan", async () => {
     mockDb.shop.upsert.mockResolvedValue(cachedShop() as never);
 
-    await refreshSubscription({ admin, session, planHandle: "tier-1" } as never);
+    await refreshSubscription({ admin, session, planHandle: "seed" } as never);
 
     expect(mockFetchActiveSubscription).not.toHaveBeenCalled();
   });
@@ -253,8 +261,8 @@ describe("refreshSubscription", () => {
         startTime: "2026-06-01T00:00:00Z",
         endTime: "2026-07-01T00:00:00Z",
       },
-      items: [{ handle: "extra_order" }, { handle: "tier-3" }],
-      pendingUpdate: { items: [{ handle: "extra_order" }, { handle: "tier-2" }] },
+      items: [{ handle: "extra_order" }, { handle: "growth" }],
+      pendingUpdate: { items: [{ handle: "extra_order" }, { handle: "starter" }] },
     });
 
     await refreshSubscription({ admin, session } as never);
@@ -264,11 +272,11 @@ describe("refreshSubscription", () => {
       data: {
         shopGid: "gid://shopify/Shop/5678",
         subscriptionActive: true,
-        subscriptionPlanHandle: "tier-3",
+        subscriptionPlanHandle: "growth",
         subscriptionTrialEndsAt: null,
         subscriptionCurrentPeriodEnd: new Date("2026-07-01T00:00:00Z"),
         subscriptionCancelAtEndOfCycle: true,
-        subscriptionPendingPlanHandle: "tier-2",
+        subscriptionPendingPlanHandle: "starter",
         subscriptionCheckedAt: new Date("2026-06-15T12:00:00.000Z"),
       },
     });
@@ -289,5 +297,129 @@ describe("refreshSubscription", () => {
       "https://admin.shopify.com/store/shop/charges/thank-snap/pricing_plans",
       { target: "_top" },
     );
+  });
+});
+
+describe("resyncSubscriptionForShop", () => {
+  const mockUnauthenticatedAdmin = vi.mocked(unauthenticated.admin);
+
+  it("queries the Partner API directly using an already-cached shop GID", async () => {
+    mockFetchActiveSubscription.mockResolvedValue(null);
+    mockDb.shop.update.mockResolvedValue({} as never);
+
+    await resyncSubscriptionForShop({
+      id: "shop_1",
+      shopDomain: "shop.myshopify.com",
+      shopGid: "gid://shopify/Shop/5678",
+    });
+
+    expect(mockUnauthenticatedAdmin).not.toHaveBeenCalled();
+    expect(mockFetchActiveSubscription).toHaveBeenCalledWith("gid://shopify/Shop/5678");
+  });
+
+  it("picks up a cancellation that happened outside the redirect flow, without an admin visit", async () => {
+    mockFetchActiveSubscription.mockResolvedValue(null);
+    mockDb.shop.update.mockResolvedValue({} as never);
+
+    await resyncSubscriptionForShop({
+      id: "shop_1",
+      shopDomain: "shop.myshopify.com",
+      shopGid: "gid://shopify/Shop/5678",
+    });
+
+    expect(mockDb.shop.update).toHaveBeenCalledWith({
+      where: { id: "shop_1" },
+      data: expect.objectContaining({ subscriptionActive: false }),
+    });
+  });
+
+  it("looks up the shop GID through an offline admin session when it isn't cached yet", async () => {
+    mockUnauthenticatedAdmin.mockResolvedValue({
+      admin: {
+        graphql: vi.fn(async () =>
+          Response.json({ data: { shop: { id: "gid://shopify/Shop/999" } } }),
+        ),
+      },
+    } as never);
+    mockFetchActiveSubscription.mockResolvedValue(null);
+    mockDb.shop.update.mockResolvedValue({} as never);
+
+    await resyncSubscriptionForShop({
+      id: "shop_1",
+      shopDomain: "shop.myshopify.com",
+      shopGid: null,
+    });
+
+    expect(mockUnauthenticatedAdmin).toHaveBeenCalledWith("shop.myshopify.com");
+    expect(mockDb.shop.update).toHaveBeenCalledWith({
+      where: { id: "shop_1" },
+      data: { shopGid: "gid://shopify/Shop/999" },
+    });
+    expect(mockFetchActiveSubscription).toHaveBeenCalledWith("gid://shopify/Shop/999");
+  });
+});
+
+describe("cancelSubscription", () => {
+  const mockUnauthenticatedAdmin = vi.mocked(unauthenticated.admin);
+
+  it("cancels at the Partner API using an already-cached shop GID, then refreshes the cached state", async () => {
+    mockCancelActiveSubscription.mockResolvedValue(undefined);
+    mockFetchActiveSubscription.mockResolvedValue({
+      billingPeriod: "EVERY_30_DAYS",
+      cancelAtEndOfCycle: true,
+      trialEndsAt: null,
+      currentBillingCycle: {
+        startTime: "2026-06-01T00:00:00Z",
+        endTime: "2026-07-01T00:00:00Z",
+      },
+      items: [{ handle: "starter" }],
+      pendingUpdate: null,
+    });
+    mockDb.shop.update.mockResolvedValue({} as never);
+
+    await cancelSubscription({
+      id: "shop_1",
+      shopDomain: "shop.myshopify.com",
+      shopGid: "gid://shopify/Shop/5678",
+    });
+
+    expect(mockUnauthenticatedAdmin).not.toHaveBeenCalled();
+    expect(mockCancelActiveSubscription).toHaveBeenCalledWith("gid://shopify/Shop/5678");
+    expect(mockDb.shop.update).toHaveBeenCalledWith({
+      where: { id: "shop_1" },
+      data: expect.objectContaining({ subscriptionCancelAtEndOfCycle: true }),
+    });
+  });
+
+  it("looks up the shop GID through an offline admin session when it isn't cached yet", async () => {
+    mockUnauthenticatedAdmin.mockResolvedValue({
+      admin: {
+        graphql: vi.fn(async () =>
+          Response.json({ data: { shop: { id: "gid://shopify/Shop/999" } } }),
+        ),
+      },
+    } as never);
+    mockCancelActiveSubscription.mockResolvedValue(undefined);
+    mockFetchActiveSubscription.mockResolvedValue(null);
+    mockDb.shop.update.mockResolvedValue({} as never);
+
+    await cancelSubscription({ id: "shop_1", shopDomain: "shop.myshopify.com", shopGid: null });
+
+    expect(mockUnauthenticatedAdmin).toHaveBeenCalledWith("shop.myshopify.com");
+    expect(mockCancelActiveSubscription).toHaveBeenCalledWith("gid://shopify/Shop/999");
+  });
+
+  it("doesn't swallow a Partner API cancellation failure", async () => {
+    mockCancelActiveSubscription.mockRejectedValue(new Error("View financials permission required"));
+
+    await expect(
+      cancelSubscription({
+        id: "shop_1",
+        shopDomain: "shop.myshopify.com",
+        shopGid: "gid://shopify/Shop/5678",
+      }),
+    ).rejects.toThrow("View financials permission required");
+
+    expect(mockFetchActiveSubscription).not.toHaveBeenCalled();
   });
 });

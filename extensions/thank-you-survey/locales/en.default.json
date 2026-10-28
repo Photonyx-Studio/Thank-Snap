@@ -1,0 +1,7 @@
+{
+  "submitButton": "Submit feedback",
+  "thanksHeading": "Thanks for your feedback!",
+  "thanksBody": "Your response has been submitted.",
+  "answerAtLeastOne": "Please answer at least one question.",
+  "genericError": "Something went wrong. Please try again."
+}

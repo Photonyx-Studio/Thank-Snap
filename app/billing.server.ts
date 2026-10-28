@@ -5,6 +5,12 @@
 // handle that doesn't match anything configured there falls back to
 // unlimited (see getUsageStatus in subscription.server.ts) rather than
 // silently blocking a paying merchant over a typo.
+//
+// The live handles are the plan name lowercased (confirmed against
+// production: real shops are on "seed" and "starter", not "tier-1"/"tier-2"
+// as previously written here) - Partner Dashboard slugs plan_handle from the
+// plan's display name rather than using whatever handle you type, so these
+// must track each plan's `name` below, not an arbitrary string.
 export interface PlanTier {
   handle: string;
   name: string;
@@ -28,21 +34,21 @@ export const OVERAGE_METER_HANDLE = "extra_order";
 
 export const PLAN_TIERS: PlanTier[] = [
   {
-    handle: "tier-1",
+    handle: "seed",
     name: "Seed",
     price: { amount: 0, currencyCode: "USD" },
     orderCap: 100,
     overagePrice: { amount: 0.02, currencyCode: "USD" },
   },
   {
-    handle: "tier-2",
+    handle: "starter",
     name: "Starter",
     price: { amount: 19, currencyCode: "USD" },
     orderCap: 1000,
     overagePrice: { amount: 0.02, currencyCode: "USD" },
   },
   {
-    handle: "tier-3",
+    handle: "growth",
     name: "Growth",
     price: { amount: 49, currencyCode: "USD" },
     orderCap: 5000,

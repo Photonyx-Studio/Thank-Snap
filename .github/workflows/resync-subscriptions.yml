@@ -1,0 +1,25 @@
+name: Resync stale subscriptions
+
+# Shopify App Pricing has no webhook for subscription changes (not even
+# cancellation), so a merchant who cancels or changes plans without
+# reopening the embedded admin would otherwise keep a stale
+# subscriptionActive=true forever - see
+# app/routes/internal.resync-subscriptions.tsx. This polls that route on a
+# schedule so those merchants get caught within a few hours instead of
+# never.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  resync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resync subscriptions against the Partner API
+        run: |
+          curl -fsS --max-time 60 \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://app.thanksnap.com/internal/resync-subscriptions

@@ -104,7 +104,7 @@ function Attribution() {
         });
 
       if (answerList.length === 0) {
-        setSubmitError("Please answer at least one question.");
+        setSubmitError(shopify.i18n.translate("answerAtLeastOne"));
         throw new Error("No answers provided");
       }
 
@@ -117,7 +117,7 @@ function Attribution() {
       setSurveySubmitted(true);
     } catch (err) {
       console.error("Failed to submit survey response", err);
-      setSubmitError((current) => current ?? "Something went wrong. Please try again.");
+      setSubmitError((current) => current ?? shopify.i18n.translate("genericError"));
       throw err;
     } finally {
       setLoading(false);

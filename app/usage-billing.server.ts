@@ -3,8 +3,7 @@ import type { Order, Shop } from "@prisma/client";
 import db from "./db.server";
 import { sendBillingEvent } from "./app-events.server";
 import { findPlanTier, OVERAGE_METER_HANDLE } from "./billing.server";
-import { startOfMonthUtc } from "./subscription.server";
-import { unauthenticated } from "./shopify.server";
+import { fetchAndCacheShopGid, startOfMonthUtc } from "./subscription.server";
 
 type ShopForBilling = Pick<
   Shop,
@@ -40,16 +39,19 @@ export async function billOverageIfNeeded(
     // This order's position within the month, counted live rather than from
     // the cached usage count - billing has to be exact, and the cache can be
     // up to CACHE_TTL_MS behind. Stable across retries for the same order.
-    const position = await db.order.count({
-      where: {
-        shopId: shop.id,
-        createdAt: { gte: periodStart, lte: order.createdAt },
-      },
-    });
+    //
+    // Ordered by (createdAt, id) rather than createdAt alone: two orders can
+    // share the same createdAt (same DB timestamp tick under concurrent
+    // traffic), and a plain `createdAt <= order.createdAt` count would give
+    // every tied row the same inclusive count - so if a tie straddles the
+    // cap, all of them bill, not just the one(s) actually past it. `id` only
+    // needs to be a stable tiebreaker, not chronological, to make each row's
+    // position unique.
+    const position = await getOrderPosition(shop.id, periodStart, order);
     if (position <= tier.orderCap) return;
 
     await sendBillingEvent({
-      shopGid: shop.shopGid ?? (await fetchAndStoreShopGid(shop)),
+      shopGid: shop.shopGid ?? (await fetchAndCacheShopGid(shop)),
       eventHandle: OVERAGE_METER_HANDLE,
       idempotencyKey: `order-${order.id}`,
       value: 1,
@@ -68,21 +70,21 @@ export async function billOverageIfNeeded(
   }
 }
 
-/**
- * The shop GID is normally cached by refreshSubscription when the merchant
- * opens the app; this covers a shop that hasn't since the column was added.
- */
-async function fetchAndStoreShopGid(shop: ShopForBilling): Promise<string> {
-  const { admin } = await unauthenticated.admin(shop.shopDomain);
-  const response = await admin.graphql(`#graphql
-    query ShopGid { shop { id } }
-  `);
-  const {
-    data: {
-      shop: { id: shopGid },
-    },
-  } = await response.json();
-
-  await db.shop.update({ where: { id: shop.id }, data: { shopGid } });
-  return shopGid;
+async function getOrderPosition(
+  shopId: string,
+  periodStart: Date,
+  order: OrderForBilling,
+): Promise<number> {
+  const [{ count }] = await db.$queryRaw<{ count: bigint }[]>`
+    SELECT COUNT(*)::bigint AS count
+    FROM "Order"
+    WHERE "shopId" = ${shopId}
+      AND "createdAt" >= ${periodStart}
+      AND (
+        "createdAt" < ${order.createdAt}
+        OR ("createdAt" = ${order.createdAt} AND "id" <= ${order.id})
+      )
+  `;
+  return Number(count);
 }
+

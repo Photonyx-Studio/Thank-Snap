@@ -21,7 +21,7 @@ export default function Auth() {
       <s-page>
         <s-section heading="Log in">
           <s-paragraph>
-            Open thank-snap from the Apps section of your Shopify admin to
+            Open ThankSnap from the Apps section of your Shopify admin to
             log in.
           </s-paragraph>
         </s-section>
